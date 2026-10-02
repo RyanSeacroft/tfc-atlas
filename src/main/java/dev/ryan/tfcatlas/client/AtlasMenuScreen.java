@@ -10,10 +10,14 @@ abstract class AtlasMenuScreen extends Screen {
     }
 
     @Override
-    public void render(net.minecraft.client.gui.GuiGraphics g, int x, int y, float delta) {
+    public final void render(net.minecraft.client.gui.GuiGraphics g, int x, int y, float delta) {
         super.render(g, x, y, delta);
+        renderContent(g, x, y, delta);
         AtlasTooltips.render(this, g, x, y);
     }
+
+    protected void renderContent(
+            net.minecraft.client.gui.GuiGraphics g, int x, int y, float delta) {}
 
     // Suppress Minecraft's deferred focus tooltip. It alternates mouse/focus positions after
     // toggles.

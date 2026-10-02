@@ -19,8 +19,49 @@ public record SearchQuery(
         Set<String> features,
         int minY,
         int maxY,
-        String rockLayer) {
+        String rockLayer,
+        Set<String> climateZones,
+        float minGroundwater,
+        float maxGroundwater) {
+    public SearchQuery(
+            Set<String> rocks,
+            Set<String> biomes,
+            Set<Integer> types,
+            float minRain,
+            float maxRain,
+            float minTemp,
+            float maxTemp,
+            Set<String> features,
+            int minY,
+            int maxY,
+            String rockLayer) {
+        this(
+                rocks,
+                biomes,
+                types,
+                minRain,
+                maxRain,
+                minTemp,
+                maxTemp,
+                features,
+                minY,
+                maxY,
+                rockLayer,
+                Set.of(),
+                -Float.MAX_VALUE,
+                Float.MAX_VALUE);
+    }
+
     public SearchQuery {
+        climateZones =
+                climateZones.stream()
+                        .map(ClimateZones::code)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (!Float.isFinite(minGroundwater)
+                || !Float.isFinite(maxGroundwater)
+                || minGroundwater > maxGroundwater) {
+            throw new IllegalArgumentException("Invalid groundwater bounds");
+        }
         if (!Set.of("Top", "Middle", "Bottom", "Any layer", "Dikes").contains(rockLayer)) {
             throw new IllegalArgumentException("Choose Top, Middle, Bottom, Any layer or Dikes");
         }
@@ -177,6 +218,10 @@ public record SearchQuery(
         return (dikes() || matchingLayers(c) != 0)
                 && named(biomes, c.biome())
                 && (rockTypes.isEmpty() || rockTypes.contains(c.rockType()))
+                && (climateZones.isEmpty()
+                        || climateZones.contains(c.climateZone().toLowerCase(Locale.ROOT)))
+                && c.groundwaterPotential() >= minGroundwater
+                && c.groundwaterPotential() <= maxGroundwater
                 && c.rain() >= minRain
                 && c.rain() <= maxRain
                 && c.temperature() >= minTemp

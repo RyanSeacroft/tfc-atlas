@@ -37,8 +37,10 @@ public final class SearchAndTerrainTest {
         terrain();
         manual();
         focus();
-        dikeApi();
-        overview();
+        if (Boolean.getBoolean("tfcatlas.gameTests")) {
+            dikeApi();
+            overview();
+        }
         parallelCache();
         System.out.println(
                 "PASS: "
@@ -80,7 +82,6 @@ public final class SearchAndTerrainTest {
                                 false,
                                 false,
                                 912L,
-                                Optional.empty(),
                                 false),
                         150,
                         18,
@@ -102,16 +103,15 @@ public final class SearchAndTerrainTest {
                             throw new AssertionError(
                                     "Unrestricted standard dikes do not need world biome access");
                         };
-        List<?> veins = feature.getNearbyVeins(world, null, chunk, 2, config, biome);
+        List<?> veins = feature.getNearbyVeins(world, null, chunk, 2, config);
         check(
                 veins.size() == 25
-                        && veins.equals(
-                                feature.getNearbyVeins(world, null, chunk, 2, config, biome)),
+                        && veins.equals(feature.getNearbyVeins(world, null, chunk, 2, config)),
                 "Real TFC vein placement is deterministic with only the exact seed view");
         check(
                 !veins.equals(
                         feature.getNearbyVeins(
-                                DikeSampler.seedView(918274L), null, chunk, 2, config, biome)),
+                                DikeSampler.seedView(918274L), null, chunk, 2, config)),
                 "Changing world seed changes predicted dike locations");
         Object vein = veins.get(0);
         check(
@@ -124,12 +124,10 @@ public final class SearchAndTerrainTest {
     }
 
     private static void overview() {
-        var settings =
-                new net.dries007.tfc.world.settings.Settings(
-                        false, 4000, 0, 0, 20000, 0, 20000, 0, null, .5f, .5f);
+        var settings = TestWorldgen.defaults();
         var generator =
                 new net.dries007.tfc.world.region.RegionGenerator(
-                        settings, new net.minecraft.world.level.levelgen.XoroshiroRandomSource(18));
+                        settings, net.dries007.tfc.world.Seed.of(18));
         var sampler = new OverviewSampler(generator);
         for (int z = -180; z <= 180; z += 12) {
             for (int x = -180; x <= 180; x += 12) {

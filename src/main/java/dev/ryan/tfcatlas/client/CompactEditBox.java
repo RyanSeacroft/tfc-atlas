@@ -15,12 +15,15 @@ import org.lwjgl.glfw.GLFW;
 final class CompactEditBox extends AbstractWidget {
     static final float SCALE = .8f;
     private final EditBox input;
+    private final Font font;
+    private boolean previewScrolled;
     private final List<String> options;
 
     CompactEditBox(
             Font font, int x, int y, int width, int height, Component label, List<String> options) {
         super(x, y, width, height, label);
         this.options = List.copyOf(options);
+        this.font = font;
         input =
                 new EditBox(
                         font,
@@ -49,9 +52,7 @@ final class CompactEditBox extends AbstractWidget {
         input.setResponder(responder);
     }
 
-    void tick() {
-        input.tick();
-    }
+    void tick() {}
 
     private SearchCompletion.Match suggestion() {
         return input.getHighlighted().isEmpty()
@@ -60,25 +61,48 @@ final class CompactEditBox extends AbstractWidget {
                 : null;
     }
 
+    private net.minecraft.client.gui.components.Tooltip hoverTooltip;
+
     @Override
-    public void render(GuiGraphics g, int x, int y, float delta) {
-        HoverTooltips.render(this, x, y, () -> super.render(g, x, y, delta));
+    public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip) {
+        hoverTooltip = tooltip;
+        super.setTooltip(tooltip);
     }
 
     @Override
     public void renderWidget(GuiGraphics g, int mx, int my, float delta) {
+        super.setTooltip(isMouseOver(mx, my) ? hoverTooltip : null);
         input.setEditable(active);
         input.setTextColor(active ? 0xE0E0E0 : 0x777777);
         var suggestion = suggestion();
-        input.setSuggestion(
+        String suffix =
                 suggestion != null && input.getCursorPosition() == value().length()
                         ? suggestion.suffix()
-                        : null);
+                        : null;
+        var viewport = (dev.ryan.tfcatlas.mixin.EditBoxAccessor) (Object) input;
+        if (suffix != null) {
+            // Scroll as though the completion is already present, without changing the value or
+            // caret.
+            String preview = value() + suffix;
+            int start =
+                    preview.length()
+                            - font.plainSubstrByWidth(preview, input.getInnerWidth() - 2, true)
+                                    .length();
+            viewport.tfcatlas$displayPos(Math.min(value().length(), start));
+            previewScrolled = true;
+        } else if (previewScrolled) {
+            viewport.tfcatlas$displayPos(0);
+            input.setCursorPosition(input.getCursorPosition());
+            previewScrolled = false;
+        }
+        input.setSuggestion(suffix);
+        g.enableScissor(getX(), getY(), getX() + getWidth(), getY() + getHeight());
         g.pose().pushPose();
         g.pose().translate(getX(), getY(), 0);
         g.pose().scale(SCALE, SCALE, 1);
         input.render(g, (int) ((mx - getX()) / SCALE), (int) ((my - getY()) / SCALE), delta);
         g.pose().popPose();
+        g.disableScissor();
     }
 
     @Override
@@ -102,7 +126,7 @@ final class CompactEditBox extends AbstractWidget {
             if (match != null) {
                 String completed = match.apply(value());
                 input.setValue(completed);
-                input.moveCursorTo(match.cursor());
+                input.moveCursorTo(match.cursor(), false);
                 return true;
             }
         }

@@ -16,7 +16,12 @@ public enum Layer {
     TEMPERATURE("Temperature"),
     RIVERS("Rivers & mountains"),
     ALTITUDE("Biome altitude"),
-    INLAND("Inlandness");
+    INLAND("Inlandness"),
+    CLIMATE_ZONES("Climate zones (sea level)"),
+    RAIN_VARIANCE("Rainfall seasonality"),
+    JANUARY_RAIN("January rainfall"),
+    JULY_RAIN("July rainfall"),
+    GROUNDWATER("Groundwater potential");
     public final String label;
 
     Layer(String s) {
@@ -36,6 +41,14 @@ public enum Layer {
 
     public String value(Cell c) {
         return switch (this) {
+            case CLIMATE_ZONES -> ClimateZones.label(c.climateZone());
+            case RAIN_VARIANCE ->
+                    String.format(
+                            Locale.ROOT, "%+.0f%% (positive: wet July)", 100 * c.rainVariance());
+            case JANUARY_RAIN -> String.format(Locale.ROOT, "%.1f mm", c.januaryRain());
+            case JULY_RAIN -> String.format(Locale.ROOT, "%.1f mm", c.julyRain());
+            case GROUNDWATER ->
+                    String.format(Locale.ROOT, "%.1f mm potential", c.groundwaterPotential());
             case ROCKS -> Cell.label(c.rock());
             case ROCK_TYPES -> c.typeName();
             case BIOMES -> Cell.label(c.biome());
@@ -79,6 +92,18 @@ public enum Layer {
     /** A shared key makes range edits, swatches and map colours describe the same data. */
     public String colourKey(Cell c) {
         return switch (this) {
+            case CLIMATE_ZONES -> c.climateZone();
+            case RAIN_VARIANCE ->
+                    String.format(Locale.ROOT, "%+.0f%%", Math.floor(c.rainVariance() * 4) * 25);
+            case JANUARY_RAIN, JULY_RAIN, GROUNDWATER -> {
+                float n =
+                        this == JANUARY_RAIN
+                                ? c.januaryRain()
+                                : this == JULY_RAIN ? c.julyRain() : c.groundwaterPotential();
+                yield n >= (this == GROUNDWATER ? 500 : 1000)
+                        ? (this == GROUNDWATER ? "500" : "1000") + " mm (maximum)"
+                        : ((int) (n / 100) * 100) + "–" + ((int) (n / 100) * 100 + 100) + " mm";
+            }
             case RAINFALL ->
                     c.rain() < 0
                             ? "Below 0 mm"
@@ -137,6 +162,11 @@ public enum Layer {
             return override & 0xffffff;
         }
         return switch (this) {
+            case CLIMATE_ZONES -> category(c.climateZone(), accessible);
+            case RAIN_VARIANCE -> ramp((c.rainVariance() + 1) / 2, 0xCF8844, 0xE6DEBD, 0x3763AC);
+            case JANUARY_RAIN -> ramp(c.januaryRain() / 1000, 0xC59C59, 0x2D8A78, 0x3548A0);
+            case JULY_RAIN -> ramp(c.julyRain() / 1000, 0xC59C59, 0x2D8A78, 0x3548A0);
+            case GROUNDWATER -> ramp(c.groundwaterPotential() / 500, 0xC59C59, 0x2D8A78, 0x3548A0);
             case ROCKS -> category(c.rock(), accessible);
             case BIOMES -> category(c.biome(), accessible);
             case ROCK_TYPES ->
@@ -169,7 +199,13 @@ public enum Layer {
     }
 
     public boolean climate() {
-        return this == RAINFALL || this == TEMPERATURE;
+        return this == RAINFALL
+                || this == TEMPERATURE
+                || this == CLIMATE_ZONES
+                || this == RAIN_VARIANCE
+                || this == JANUARY_RAIN
+                || this == JULY_RAIN
+                || this == GROUNDWATER;
     }
 
     public boolean continentFill() {
@@ -240,6 +276,37 @@ public enum Layer {
     /** Fixed semantic/numeric order shared by the map key and full key. */
     public List<LegendEntry> legend(boolean accessible, Map<String, Integer> overrides) {
         List<LegendEntry> entries = new ArrayList<>();
+        if (this == CLIMATE_ZONES) {
+            for (String zone : ClimateZones.CODES) {
+                entries.add(
+                        new LegendEntry(
+                                ClimateZones.label(zone),
+                                zone,
+                                List.of(
+                                        overrides.getOrDefault(
+                                                name() + ":" + zone, category(zone, accessible)))));
+            }
+            return List.copyOf(entries);
+        }
+        if (this == RAIN_VARIANCE) {
+            for (int i = -4; i <= 4; i++) {
+                float variance = i / 4f;
+                add(
+                        entries,
+                        t -> sample(0, 250, 0, 0, 0, 1).withClimate(variance, 0, "Unknown"),
+                        accessible,
+                        overrides);
+            }
+        }
+        if (this == JANUARY_RAIN || this == JULY_RAIN || this == GROUNDWATER) {
+            int limit = this == GROUNDWATER ? 5 : 10;
+            for (int i = 0; i < limit; i++) {
+                int low = i * 100;
+                add(entries, t -> sample(0, low + 99.999 * t, 0, 0, 0, 1), accessible, overrides);
+            }
+            add(entries, t -> sample(0, limit * 100, 0, 0, 0, 1), accessible, overrides);
+        }
+
         if (this == ROCKS || this == BIOMES) {
             categories(this, accessible, overrides)
                     .forEach(
@@ -335,8 +402,18 @@ public enum Layer {
 
     public String legendNote() {
         return switch (this) {
-            case RAINFALL -> "Rainfall in mm; ranges run from the lower bound up to the next.";
-            case TEMPERATURE -> "Annual mean °C; ranges run from the lower bound up to the next.";
+            case CLIMATE_ZONES ->
+                    "TFC climate classification at sea level; mountainous surface climates can differ. Hemisphere is evaluated separately at every location.";
+            case RAIN_VARIANCE ->
+                    "Signed seasonal variation: positive means wetter July, negative means wetter January. Zero is uniform rainfall.";
+            case JANUARY_RAIN, JULY_RAIN ->
+                    "Rainfall at the start of the named month, derived from TFC's annual rainfall and signed seasonal variation; not current weather.";
+            case GROUNDWATER ->
+                    "Annual rainfall plus river groundwater before TFC's elevation reduction, capped at 500 mm. Potential only: high river banks can have less actual groundwater.";
+            case RAINFALL ->
+                    "Annual mean rainfall in mm; ranges run from the lower bound up to the next.";
+            case TEMPERATURE ->
+                    "Annual mean sea-level °C; ranges run from the lower bound up to the next.";
             case ALTITUDE ->
                     "Regional terrain bands, not surface Y contours. Close mountain boundaries follow TFC's blended terrain biomes.";
             case RIVERS ->

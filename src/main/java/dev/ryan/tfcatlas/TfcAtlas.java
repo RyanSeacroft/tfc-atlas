@@ -1,13 +1,13 @@
 package dev.ryan.tfcatlas;
 
 import dev.ryan.tfcatlas.client.AtlasClient;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.common.Mod;
 
-@Mod("tfcatlas")
+@Mod(value = "tfcatlas", dist = Dist.CLIENT)
 public final class TfcAtlas {
-    public TfcAtlas() {
-        DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> AtlasClient::init);
+    public TfcAtlas(IEventBus bus) {
+        AtlasClient.init(bus);
     }
 }

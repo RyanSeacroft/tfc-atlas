@@ -35,6 +35,16 @@ public record SearchDetails(
                                         .map(t -> Cell.TYPE_NAMES[t])
                                         .collect(Collectors.joining(", "))));
         lines.add("Terrain: " + names(query.features()));
+        if (!query.climateZones().isEmpty()) {
+            lines.add("Climate: " + ClimateZones.summary(query.climateZones()));
+        }
+        if (query.minGroundwater() != -Float.MAX_VALUE
+                || query.maxGroundwater() != Float.MAX_VALUE) {
+            lines.add(
+                    "Groundwater potential: "
+                            + range(query.minGroundwater(), query.maxGroundwater())
+                            + " mm");
+        }
         lines.add(
                 "Rain: "
                         + range(query.minRain(), query.maxRain())

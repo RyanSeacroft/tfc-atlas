@@ -53,8 +53,7 @@ import net.dries007.tfc.world.settings.Settings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 
 /** Each session owns its generator. No Minecraft chunks or server are created. */
 public final class RegionEngine implements AutoCloseable {
@@ -216,15 +215,36 @@ public final class RegionEngine implements AutoCloseable {
                                 .getAsJsonObject("minecraft:overworld")
                                 .getAsJsonObject("generator")
                                 .getAsJsonObject("tfc_settings");
+                // Rock definitions are not synced to multiplayer clients in TFC 4. Inline the
+                // installed default data.
+                var definitions =
+                        data.getAsJsonObject("rock_layer_settings").getAsJsonObject("rocks");
+                for (var entry : new java.util.ArrayList<>(definitions.entrySet())) {
+                    if (entry.getValue().isJsonPrimitive()) {
+                        var id =
+                                net.minecraft.resources.ResourceLocation.parse(
+                                        entry.getValue().getAsString());
+                        try (var rockInput =
+                                Settings.class.getResourceAsStream(
+                                        "/data/"
+                                                + id.getNamespace()
+                                                + "/tfc/worldgen/rock_settings/"
+                                                + id.getPath()
+                                                + ".json")) {
+                            if (rockInput == null) {
+                                throw new IOException("Missing installed rock definition " + id);
+                            }
+                            definitions.add(
+                                    entry.getKey(),
+                                    JsonParser.parseReader(new InputStreamReader(rockInput)));
+                        }
+                    }
+                }
                 original =
                         Settings.CODEC
                                 .codec()
                                 .parse(JsonOps.INSTANCE, data)
-                                .getOrThrow(
-                                        false,
-                                        s -> {
-                                            throw new IllegalArgumentException(s);
-                                        });
+                                .getOrThrow(IllegalArgumentException::new);
             }
             original =
                     new Settings(
@@ -238,17 +258,14 @@ public final class RegionEngine implements AutoCloseable {
                             p.rainfallConstant,
                             original.rockLayerSettings(),
                             p.continentalness,
-                            original.grassDensity());
+                            original.grassDensity(),
+                            p.finiteContinents);
         }
         settings = original;
         JsonObject rockGraph =
                 net.dries007.tfc.world.settings.RockLayerSettings.CODEC
                         .encodeStart(JsonOps.INSTANCE, settings.rockLayerSettings())
-                        .getOrThrow(
-                                false,
-                                s -> {
-                                    throw new IllegalArgumentException(s);
-                                })
+                        .getOrThrow(IllegalArgumentException::new)
                         .getAsJsonObject();
         possibleRocks =
                 RockPossibilities.read(
@@ -257,26 +274,26 @@ public final class RegionEngine implements AutoCloseable {
                             var rock =
                                     net.dries007.tfc.world.settings.RockSettings.CODEC
                                             .parse(JsonOps.INSTANCE, data)
-                                            .getOrThrow(
-                                                    false,
-                                                    s -> {
-                                                        throw new IllegalArgumentException(s);
-                                                    });
+                                            .getOrThrow(IllegalArgumentException::new);
                             return BuiltInRegistries.BLOCK.getKey(rock.raw()).toString();
                         });
-        var random = new XoroshiroRandomSource(seed);
-        generator = new AtlasRegionGenerator(settings, random);
+        var random = net.dries007.tfc.world.Seed.of(seed);
+        generator = new RegionGenerator(settings, random);
+        AtlasRegionRecovery.register(generator);
         overview = new OverviewSampler(generator);
         var chunks =
-                net.dries007.tfc.world.chunkdata.RegionChunkDataGenerator.create(
-                        random.nextLong(), settings.rockLayerSettings(), generator);
-        long biomeSeed = random.nextLong();
-        var registry =
-                Minecraft.getInstance()
-                        .level
-                        .registryAccess()
-                        .lookupOrThrow(net.minecraft.core.registries.Registries.BIOME);
-        heights = new TerrainHeightSampler(seed, biomeSeed, generator, registry);
+                (net.dries007.tfc.world.chunkdata.RegionChunkDataGenerator)
+                        generator.chunkDataGenerator();
+        var registry = Minecraft.getInstance().level.registryAccess();
+        var source =
+                new net.dries007.tfc.world.biome.RegionBiomeSource(
+                        registry.lookupOrThrow(net.minecraft.core.registries.Registries.BIOME));
+        source.initRandomState(
+                generator,
+                new net.dries007.tfc.world.layer.framework.ConcurrentArea<>(
+                        TFCLayers.createRegionBiomeLayer(generator, random),
+                        TFCLayers::getFromLayerId));
+        heights = new TerrainHeightSampler(seed, source, settings, registry, chunks);
         hoverHeight =
                 new HoverHeight(
                         hoverWorker,
@@ -286,11 +303,11 @@ public final class RegionEngine implements AutoCloseable {
                             if (hoverSampler == null) {
                                 hoverSampler =
                                         new TerrainHeightSampler(
-                                                seed, biomeSeed, generator, registry);
+                                                seed, source, settings, registry, chunks);
                             }
                             return hoverSampler.sample(x, z);
                         });
-        fine = new FineSampler(generator, heights.source, chunks);
+        fine = new FineSampler(generator, heights.source, chunks, settings.temperatureScale());
         hoverCell =
                 new HoverCell(
                         hoverWorker,
@@ -304,11 +321,7 @@ public final class RegionEngine implements AutoCloseable {
                                 Settings.CODEC
                                         .codec()
                                         .encodeStart(JsonOps.INSTANCE, settings)
-                                        .getOrThrow(
-                                                false,
-                                                s -> {
-                                                    throw new IllegalArgumentException(s);
-                                                }))
+                                        .getOrThrow(IllegalArgumentException::new))
                         .toString();
         String version =
                 ModList.get()
@@ -320,7 +333,7 @@ public final class RegionEngine implements AutoCloseable {
         directory =
                 Profiles.root()
                         .resolve(
-                                "cache/"
+                                "cache-1.21.1/"
                                         + Profiles.hash(world)
                                         + "/"
                                         + Profiles.hash(
@@ -329,7 +342,7 @@ public final class RegionEngine implements AutoCloseable {
                                                         + version
                                                         + ":"
                                                         + Tile.FORMAT
-                                                        + ":"
+                                                        + ":complete-regions:"
                                                         + serialized));
         memoryTiles = p.memoryTiles;
         diskMB = p.diskMB;
@@ -622,21 +635,24 @@ public final class RegionEngine implements AutoCloseable {
                     String biome =
                             TFCLayers.getFromLayerId(point.biome).key().location().toString();
                     cells[x + z * Tile.SIDE] =
-                            new Cell(
-                                    rock,
-                                    biome,
-                                    point.rock & 3,
-                                    point.rainfall,
-                                    point.temperature,
-                                    point.biomeAltitude,
-                                    point.baseLandHeight,
-                                    point.distanceToOcean,
-                                    (point.land() ? 1 : 0)
-                                            | (point.river() ? 2 : 0)
-                                            | (point.lake() ? 4 : 0)
-                                            | (point.mountain() ? 8 : 0),
-                                    middle,
-                                    bottom);
+                            fine.climate(
+                                    new Cell(
+                                            rock,
+                                            biome,
+                                            point.rock & 3,
+                                            point.rainfall,
+                                            point.temperature,
+                                            point.biomeAltitude,
+                                            point.baseLandHeight,
+                                            point.distanceToOcean,
+                                            (point.land() ? 1 : 0)
+                                                    | (point.river() ? 2 : 0)
+                                                    | (point.lake() ? 4 : 0)
+                                                    | (point.mountain() ? 8 : 0),
+                                            middle,
+                                            bottom),
+                                    bx,
+                                    bz);
                 }
             }
             tile = new Tile(key, cells);

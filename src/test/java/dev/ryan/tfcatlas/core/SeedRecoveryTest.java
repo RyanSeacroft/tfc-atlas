@@ -47,18 +47,19 @@ public final class SeedRecoveryTest {
             throw new AssertionError("Impossible climate value accepted");
         }
         for (long seed : new long[] {0, -42, Long.MIN_VALUE}) {
-            var model = new OverworldClimateModel();
+
             FriendlyByteBuf incoming = new FriendlyByteBuf(Unpooled.buffer()),
                     outgoing = new FriendlyByteBuf(Unpooled.buffer());
             try {
+                incoming.writeVarLong(LinearCongruentialGenerator.next(seed, 719283741234L));
                 incoming.writeFloat(12000);
-                incoming.writeLong(LinearCongruentialGenerator.next(seed, 719283741234L));
-                model.onReceiveOnClient(incoming);
-                model.onSyncToClient(outgoing);
-                if (outgoing.readableBytes() != 12 || outgoing.readFloat() != 12000) {
+                var model = OverworldClimateModel.STREAM_CODEC.decode(incoming);
+                OverworldClimateModel.STREAM_CODEC.encode(outgoing, model);
+                long climateSeed = outgoing.readVarLong();
+                if (outgoing.readFloat() != 12000 || outgoing.isReadable()) {
                     throw new AssertionError("Unexpected TFC climate payload");
                 }
-                if (SeedRecovery.recover(outgoing.readLong(), BiomeManager.obfuscateSeed(seed))
+                if (SeedRecovery.recover(climateSeed, BiomeManager.obfuscateSeed(seed))
                                 .orElseThrow()
                         != seed) {
                     throw new AssertionError("TFC climate round trip failed");

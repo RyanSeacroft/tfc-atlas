@@ -1,1 +1,19 @@
-{"required":false,"minVersion":"0.8","package":"dev.ryan.tfcatlas.mixin","compatibilityLevel":"JAVA_17","refmap":"tfcatlas.refmap.json","client":["GuiMapMixin","BiomeManagerAccessor"],"injectors":{"defaultRequire":0}}
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.ryan.tfcatlas.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "GuiMapMixin",
+    "BiomeManagerAccessor",
+    "RockNoiseAccessor",
+    "TfcGeneratorAccessor",
+    "RegionRecoveryMixin",
+    "RegionAreaAccessor",
+    "RegionInitMixin",
+    "EditBoxAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

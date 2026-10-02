@@ -1,6 +1,7 @@
 package dev.ryan.tfcatlas.client;
 
 import dev.ryan.tfcatlas.core.Cell;
+import dev.ryan.tfcatlas.core.ClimateZones;
 import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.SearchLayout;
 import dev.ryan.tfcatlas.core.SearchOverlay;
@@ -58,7 +59,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "layer",
                     "Data layer",
-                    "All eight values are generated together.",
+                    "All layers share the cached samples.",
                     Arrays.stream(Layer.values()).map(Enum::name).toArray(String[]::new)),
             o(
                     "spawn",
@@ -68,6 +69,18 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "false")
         },
         {
+            o(
+                    "climateZones",
+                    "Climate zones: names separated by commas",
+                    "TFC sea-level climate names, such as Hot Desert or Oceanic. Tab completes each comma-separated name. Blank = any."),
+            o(
+                    "minGroundwater",
+                    "Minimum groundwater potential (mm)",
+                    "At least this much annual rainfall plus river groundwater before elevation reduction. High river banks may have less actual water. Blank = no minimum."),
+            o(
+                    "maxGroundwater",
+                    "Maximum groundwater potential (mm)",
+                    "Upper bound on potential, not guaranteed surface groundwater. Blank = no maximum."),
             o(
                     "rocks",
                     "Rocks: names separated by commas",
@@ -162,7 +175,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "mapLabels",
                     "Map labels",
-                    "Rock names on Rocks; biome names on Biomes. One name is centred inside each connected visible region; small patches wait until there is room.",
+                    "Rock names on Rocks; biome names on Biomes; climate names on Climate zones. One name is centred inside each connected visible region; small patches wait until there is room.",
                     "Off",
                     "Active layer"),
             o("opacity", "Overlay opacity (0–1)", "0 is transparent; 1 is solid."),
@@ -214,6 +227,12 @@ public final class AtlasScreen extends AtlasMenuScreen {
         },
         {
             o(
+                    "finiteContinents",
+                    "Finite continents",
+                    "Use TFC 1.21 finite continents. Must match the world generator; singleplayer settings are read automatically.",
+                    "false",
+                    "true"),
+            o(
                     "temperatureScale",
                     "Temperature scale (blocks)",
                     "Default 20000. Use zero for a constant climate axis."),
@@ -241,7 +260,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "Versioned by world, seed, TFC version and settings.",
                     "true",
                     "false"),
-            o("memoryTiles", "Memory tile limit", "64 to 4096. Each tile stores all eight layers."),
+            o("memoryTiles", "Memory tile limit", "64 to 4096. Each tile stores all layers."),
             o(
                     "diskMB",
                     "Disk limit per seed (MiB)",
@@ -275,6 +294,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             }
         }
         values.put("searchOrigin", AtlasClient.profile.searchOrigin);
+        values.computeIfPresent("climateZones", (key, value) -> ClimateZones.displayList(value));
     }
 
     public void syncLayer() {
@@ -486,6 +506,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
         } else {
             List<String> suggestions =
                     switch (option.key) {
+                        case "climateZones" -> ClimateZones.NAMES;
                         case "rocks" ->
                                 List.copyOf(
                                         Layer.categories(Layer.ROCKS, false, Map.of()).keySet());
@@ -780,6 +801,8 @@ public final class AtlasScreen extends AtlasMenuScreen {
                 + ":"
                 + p.continentalness
                 + ":"
+                + p.finiteContinents
+                + ":"
                 + p.memoryTiles
                 + ":"
                 + p.diskCache
@@ -796,6 +819,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             }
         }
         values.put("searchOrigin", AtlasClient.profile.searchOrigin);
+        values.computeIfPresent("climateZones", (key, value) -> ClimateZones.displayList(value));
         if (AtlasClient.engine != null) {
             AtlasClient.engine.clearSearch();
         }
@@ -939,8 +963,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
     }
 
     @Override
-    public void render(GuiGraphics g, int mx, int my, float delta) {
-        renderBackground(g);
+    public void renderContent(GuiGraphics g, int mx, int my, float delta) {
         g.drawCenteredString(font, "TFC Atlas · " + TABS[tab], width / 2, 8, 0xE8D9B6);
         int content = Math.min(width - 24, 620), left = (width - content) / 2;
         if (tab == 1) {
@@ -1030,7 +1053,6 @@ public final class AtlasScreen extends AtlasMenuScreen {
             g.drawString(
                     font, font.plainSubstrByWidth(message, content), left, height - 39, 0xFFE098);
         }
-        super.render(g, mx, my, delta);
     }
 
     @Override
@@ -1189,8 +1211,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
         }
 
         @Override
-        public void render(GuiGraphics g, int x, int y, float d) {
-            renderBackground(g);
+        public void renderContent(GuiGraphics g, int x, int y, float d) {
             g.drawCenteredString(font, "Saved searches", width / 2, 22, 0xffffff);
             if (AtlasClient.profile.savedSearches.isEmpty()) {
                 g.drawCenteredString(
@@ -1200,11 +1221,10 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         108,
                         0xCEC9BD);
             }
-            super.render(g, x, y, d);
         }
 
         @Override
-        public boolean mouseScrolled(double x, double y, double delta) {
+        public boolean mouseScrolled(double x, double y, double horizontal, double delta) {
             presetScroll = Math.max(0, presetScroll - (int) Math.signum(delta) * 3);
             rebuildWidgets();
             return true;

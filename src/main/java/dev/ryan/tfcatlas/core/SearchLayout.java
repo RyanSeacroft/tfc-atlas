@@ -38,21 +38,34 @@ public final class SearchLayout {
         int content = Math.min(width - 24, 620), left = (width - content) / 2;
         int pitch = Math.min(30, Math.max(22, (height - 128) / 5)), h = Math.min(16, pitch - 10);
         List<Group> groups = new ArrayList<>();
-        add(groups, left, content, pitch, h, 0, 0, 2, "Rocks (comma separated)", "rocks");
-        add(groups, left, content, pitch, h, 0, 1, 2, "Biomes (comma separated)", "biomes");
+        add(groups, left, content, pitch, h, 0, 0, 3, "Rocks (comma separated)", "rocks");
+        add(groups, left, content, pitch, h, 0, 1, 3, "Biomes (comma separated)", "biomes");
         add(groups, left, content, pitch, h, 1, 0, 3, "Rock regions (list)", "categories");
         add(groups, left, content, pitch, h, 1, 1, 3, "Terrain features (list)", "feature");
         add(groups, left, content, pitch, h, 1, 2, 3, "Rock layer", "searchRockLayer");
         add(groups, left, content, pitch, h, 2, 0, 3, "Rain mm: min / max", "minRain", "maxRain");
         add(groups, left, content, pitch, h, 2, 1, 3, "Temp °C: min / max", "minTemp", "maxTemp");
         add(groups, left, content, pitch, h, 2, 2, 3, "Surface Y: min / max", "minY", "maxY");
-        add(groups, left, content, pitch, h, 3, 0, 2, "Search radius (blocks)", "radius");
-        add(groups, left, content, pitch, h, 3, 1, 2, "Sampling (blocks)", "precision");
+        add(groups, left, content, pitch, h, 3, 0, 3, "Search radius (blocks)", "radius");
+        add(groups, left, content, pitch, h, 3, 1, 3, "Sampling (blocks)", "precision");
         if (coordinates) {
             add(groups, left, content, pitch, h, 4, 0, 3, "Centre X / Z", "searchX", "searchZ");
         }
         add(groups, left, content, pitch, h, 4, 1, 3, "Separation (blocks)", "resultSpacing");
         add(groups, left, content, pitch, h, 4, 2, 3, "Highlight matches", "highlights");
+        add(groups, left, content, pitch, h, 0, 2, 3, "Climate zones (names)", "climateZones");
+        add(
+                groups,
+                left,
+                content,
+                pitch,
+                h,
+                3,
+                2,
+                3,
+                "Water potential: min / max",
+                "minGroundwater",
+                "maxGroundwater");
         return List.copyOf(groups);
     }
 

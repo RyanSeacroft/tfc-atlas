@@ -21,8 +21,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import net.dries007.tfc.world.region.Region;
-import net.dries007.tfc.world.settings.Settings;
-import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 
 public final class SeedPrivacyTest {
     private static int checks;
@@ -36,7 +34,9 @@ public final class SeedPrivacyTest {
 
     public static void run() throws Exception {
         privacy();
-        persistence();
+        if (Boolean.getBoolean("tfcatlas.gameTests")) {
+            persistence();
+        }
         writeFailure();
         System.out.println(
                 "PASS: "
@@ -121,10 +121,11 @@ public final class SeedPrivacyTest {
 
     private static void persistence() throws Exception {
         Path directory = Files.createTempDirectory("atlas-background-integration");
-        var settings = new Settings(false, 4000, 0, 0, 20000, 0, 20000, 0, null, .5f, .5f);
+        var settings = TestWorldgen.defaults();
         var sampler =
                 new OverviewSampler(
-                        new AtlasRegionGenerator(settings, new XoroshiroRandomSource(22)));
+                        new net.dries007.tfc.world.region.RegionGenerator(
+                                settings, net.dries007.tfc.world.Seed.of(22)));
         List<Tile.Key> keys = new ArrayList<>();
         for (var key : PrecacheArea.at(-1000, 3000)) {
             keys.add(key);

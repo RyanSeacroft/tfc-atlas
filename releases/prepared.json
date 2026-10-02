@@ -1,13 +1,13 @@
 {
-  "branch": "1.20.x",
-  "tag": "v0.1.24-mc1.20.1",
-  "title": "TFC Atlas 0.1.24 \u2014 Minecraft 1.20.1 (Forge)",
-  "jar": "tfc-atlas-1.20.1-0.1.24.jar",
-  "source": "tfc-atlas-1.20.1-0.1.24-source.zip",
-  "latest": false,
+  "branch": "1.21.x",
+  "tag": "v0.1.24-mc1.21.1",
+  "title": "TFC Atlas 0.1.24 \u2014 Minecraft 1.21.1 (NeoForge)",
+  "jar": "tfc-atlas-neoforge-1.21.1-0.1.24.jar",
+  "source": "tfc-atlas-neoforge-1.21.1-0.1.24-source.zip",
+  "latest": true,
   "assets": {
-    "tfc-atlas-1.20.1-0.1.24.jar": "36cb8e71b54fe41078e679f1e112c302c1e2dfd38f1fd43afd2220512965ff09",
-    "tfc-atlas-1.20.1-0.1.24-source.zip": "1a45a2e90fcdbaf899ed3686cd57cb2c251d9e80d753e565547c69b90b203212",
-    "SHA256SUMS": "6ede121993562422975b9346f8287e9e4f9faa948bc1e042edab1e317d6e938f"
+    "tfc-atlas-neoforge-1.21.1-0.1.24.jar": "586a9868dc1e92b9adc41011e655657e1d1aa31edb496cc8850cbf7e0a8290a6",
+    "tfc-atlas-neoforge-1.21.1-0.1.24-source.zip": "99d65c42df35031ae6d31decbc9d2606458d22035589c317510ddc7fd4a2bf0b",
+    "SHA256SUMS": "8972feb95d84ad6220c4a9320be56ed74dde255aa819e12856c9de63b1f28d93"
   }
 }

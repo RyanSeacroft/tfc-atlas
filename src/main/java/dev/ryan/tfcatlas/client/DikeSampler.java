@@ -70,7 +70,9 @@ final class DikeSampler {
                         server.getLevel(Level.OVERWORLD)
                                 .registryAccess()
                                 .registryOrThrow(Registries.CONFIGURED_FEATURE)
-                                .get(new ResourceLocation("tfc", "vein/" + rock + "_dike"));
+                                .get(
+                                        ResourceLocation.fromNamespaceAndPath(
+                                                "tfc", "vein/" + rock + "_dike"));
                 if (configured == null) {
                     continue;
                 }
@@ -116,11 +118,7 @@ final class DikeSampler {
                     config =
                             PipeVeinConfig.CODEC
                                     .parse(JsonOps.INSTANCE, data)
-                                    .getOrThrow(
-                                            false,
-                                            s -> {
-                                                throw new IllegalArgumentException(s);
-                                            });
+                                    .getOrThrow(IllegalArgumentException::new);
                 }
                 feature = new PipeVeinFeature(PipeVeinConfig.CODEC);
             }
@@ -187,11 +185,7 @@ final class DikeSampler {
                                 null,
                                 new ChunkPos(cx, cz),
                                 kind.config.chunkRadius(),
-                                kind.config,
-                                p ->
-                                        heights.source.getBiomeFromExtension(
-                                                heights.source.getBiomeExtension(
-                                                        p.getX() >> 2, p.getZ() >> 2)))) {
+                                kind.config)) {
                     BlockPos center = ((IVein) vein).pos();
                     if (kind.enabled.test(center)) {
                         nearby.add(new Vein(kind, vein, center));
@@ -250,7 +244,7 @@ final class DikeSampler {
                     }
                     var host =
                             BuiltInRegistries.BLOCK.get(
-                                    new ResourceLocation(fine.rock(x, y, z, surface)));
+                                    ResourceLocation.parse(fine.rock(x, y, z, surface)));
                     if (vein.kind.config.config().states().containsKey(host)) {
                         return new Hit(
                                 vein.kind.rock,

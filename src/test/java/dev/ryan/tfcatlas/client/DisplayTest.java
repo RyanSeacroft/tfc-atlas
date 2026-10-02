@@ -42,17 +42,20 @@ public final class DisplayTest {
         climateContinents();
         Cell sample = cell(150, 15, 8, 10, 1);
         for (Layer layer : Layer.values()) {
-            boolean eligible = layer == Layer.ROCKS || layer == Layer.BIOMES;
+            boolean eligible =
+                    layer == Layer.ROCKS || layer == Layer.BIOMES || layer == Layer.CLIMATE_ZONES;
             check(
                     MapLabels.visible("Active layer", layer, .5, 1) == eligible,
                     "Names follow the selected layer: " + layer);
             check(!MapLabels.visible("Off", layer, 1, 1), "Off hides names: " + layer);
             check(
-                    !MapLabels.visible("Active layer", layer, .09, 1),
-                    "Zoomed-out names hidden: " + layer);
+                    MapLabels.visible("Active layer", layer, .09, 1)
+                            == (layer == Layer.CLIMATE_ZONES),
+                    "Only climate regions show names at overview zoom: " + layer);
             check(
-                    !MapLabels.visible("Active layer", layer, 1, 16),
-                    "Overview samples never supply labels: " + layer);
+                    MapLabels.visible("Active layer", layer, 1, 16)
+                            == (layer == Layer.CLIMATE_ZONES),
+                    "Climate regions can use overview samples: " + layer);
             var first = layer.legend(false, Map.of());
             check(
                     !first.isEmpty() && first.equals(layer.legend(false, Map.of())),
@@ -292,6 +295,9 @@ public final class DisplayTest {
         }
         Set<String> expected =
                 Set.of(
+                        "climateZones",
+                        "minGroundwater",
+                        "maxGroundwater",
                         "rocks",
                         "biomes",
                         "categories",

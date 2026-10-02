@@ -394,14 +394,15 @@ public final class MapRenderer {
         RenderSystem.depthMask(false);
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderTexture(0, page.id);
-        var b = Tesselator.getInstance().getBuilder();
+        var b =
+                Tesselator.getInstance()
+                        .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
         var pose = g.pose().last().pose();
-        b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        b.vertex(pose, x, y + size, 0).uv(u, vv + uvSpan).endVertex();
-        b.vertex(pose, x + size, y + size, 0).uv(u + uvSpan, vv + uvSpan).endVertex();
-        b.vertex(pose, x + size, y, 0).uv(u + uvSpan, vv).endVertex();
-        b.vertex(pose, x, y, 0).uv(u, vv).endVertex();
-        BufferUploader.drawWithShader(b.end());
+        b.addVertex(pose, x, y + size, 0).setUv(u, vv + uvSpan);
+        b.addVertex(pose, x + size, y + size, 0).setUv(u + uvSpan, vv + uvSpan);
+        b.addVertex(pose, x + size, y, 0).setUv(u + uvSpan, vv);
+        b.addVertex(pose, x, y, 0).setUv(u, vv);
+        BufferUploader.drawWithShader(b.buildOrThrow());
     }
 
     private void mapLabels(
@@ -468,11 +469,11 @@ public final class MapRenderer {
                             for (int x = Math.max(0, -ox); x < Math.min(Tile.SIDE, nx - ox); x++) {
                                 Cell c = tile.cells()[x + z * Tile.SIDE];
                                 names[x + ox + (z + oz) * nx] =
-                                        layer == Layer.ROCKS
-                                                ? (p.climateContinents && !c.land()
-                                                        ? null
-                                                        : c.rock(p.selectedRockLayer()))
-                                                : c.biome();
+                                        MapLabels.id(
+                                                layer,
+                                                c,
+                                                p.selectedRockLayer(),
+                                                p.climateContinents);
                             }
                         }
                     }
@@ -481,7 +482,9 @@ public final class MapRenderer {
                 Map<String, Double> textWidths = new HashMap<>();
                 for (String id : names) {
                     if (id != null && !textWidths.containsKey(id)) {
-                        textWidths.put(id, (font.width(Cell.label(id)) + 8) * scale / v.scale());
+                        textWidths.put(
+                                id,
+                                (font.width(MapLabels.name(layer, id)) + 8) * scale / v.scale());
                     }
                 }
                 var clip = new RegionLabels.View(left + pad, top + pad, right - pad, bottom - pad);
@@ -530,7 +533,7 @@ public final class MapRenderer {
             if (!RegionLabels.clearOfExplored(label, coverage, 1 / v.scale())) {
                 continue;
             }
-            String text = Cell.label(label.id());
+            String text = MapLabels.name(layer, label.id());
             int w = font.width(text);
             double x = v.centerX() + (label.x() - v.x()) * v.scale(),
                     y = v.centerZ() + (label.z() - v.z()) * v.scale();
@@ -715,10 +718,10 @@ public final class MapRenderer {
             return;
         }
         double dx = -(y1 - y0) / length * thickness / 2, dy = (x1 - x0) / length * thickness / 2;
-        b.vertex(pose, (float) (x0 + dx), (float) (y0 + dy), 0).color(colour).endVertex();
-        b.vertex(pose, (float) (x0 - dx), (float) (y0 - dy), 0).color(colour).endVertex();
-        b.vertex(pose, (float) (x1 - dx), (float) (y1 - dy), 0).color(colour).endVertex();
-        b.vertex(pose, (float) (x1 + dx), (float) (y1 + dy), 0).color(colour).endVertex();
+        b.addVertex(pose, (float) (x0 + dx), (float) (y0 + dy), 0).setColor(colour);
+        b.addVertex(pose, (float) (x0 - dx), (float) (y0 - dy), 0).setColor(colour);
+        b.addVertex(pose, (float) (x1 - dx), (float) (y1 - dy), 0).setColor(colour);
+        b.addVertex(pose, (float) (x1 + dx), (float) (y1 + dy), 0).setColor(colour);
     }
 
     private static BufferBuilder lines(GuiGraphics g) {
@@ -729,13 +732,12 @@ public final class MapRenderer {
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        var b = Tesselator.getInstance().getBuilder();
-        b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-        return b;
+        return Tesselator.getInstance()
+                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
     }
 
     private static void finishLines(BufferBuilder b) {
-        BufferUploader.drawWithShader(b.end());
+        BufferUploader.drawWithShader(b.buildOrThrow());
         RenderSystem.enableCull();
     }
 

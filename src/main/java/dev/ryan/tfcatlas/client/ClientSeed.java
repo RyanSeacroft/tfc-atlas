@@ -23,7 +23,7 @@ final class ClientSeed {
             return false;
         }
         try {
-            var model = Climate.model(level);
+            var model = Climate.get(level);
             if (model.getClass() != OverworldClimateModel.class) {
                 status = "Seed detection: waiting for standard TFC climate data";
                 return false;
@@ -35,13 +35,10 @@ final class ClientSeed {
             FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(12));
             try {
                 // Serialize the already-received local model. No packet or request is sent.
-                model.onSyncToClient(buffer);
-                if (buffer.readableBytes() != 12) {
-                    status = "Unsupported climate data; enter the seed in World";
-                    return false;
-                }
+                OverworldClimateModel.STREAM_CODEC.encode(buffer, (OverworldClimateModel) model);
+
+                long climateSeed = buffer.readVarLong();
                 float temperatureScale = buffer.readFloat();
-                long climateSeed = buffer.readLong();
                 var recovered = SeedRecovery.recover(climateSeed, access.tfcatlas$biomeZoomSeed());
                 if (recovered.isEmpty()) {
                     status = "Seed not verified; enter the seed in World";

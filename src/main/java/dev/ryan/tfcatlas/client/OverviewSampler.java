@@ -20,7 +20,7 @@ final class OverviewSampler {
         Region[] regions = recent.get();
         for (Region region : regions) {
             if (region != null) {
-                Region.Point point = region.maybeAt(x, z);
+                Region.Point point = region.at(x, z);
                 if (point != null) {
                     return point;
                 }
@@ -37,7 +37,7 @@ final class OverviewSampler {
         }
         System.arraycopy(regions, 0, regions, 1, regions.length - 1);
         regions[0] = region;
-        Region.Point point = region.maybeAt(x, z);
+        Region.Point point = region.at(x, z);
         if (point == null) {
             throw new IllegalStateException("Missing overview sample at grid X " + x + ", Z " + z);
         }

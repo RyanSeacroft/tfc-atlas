@@ -12,7 +12,69 @@ public record Cell(
         int oceanDistance,
         int flags,
         String middleRock,
-        String bottomRock) {
+        String bottomRock,
+        float rainVariance,
+        float baseGroundwater,
+        String climateZone) {
+    public Cell(
+            String rock,
+            String biome,
+            int rockType,
+            float rain,
+            float temperature,
+            int altitude,
+            int inland,
+            int oceanDistance,
+            int flags,
+            String middleRock,
+            String bottomRock) {
+        this(
+                rock,
+                biome,
+                rockType,
+                rain,
+                temperature,
+                altitude,
+                inland,
+                oceanDistance,
+                flags,
+                middleRock,
+                bottomRock,
+                0,
+                0,
+                "Unknown");
+    }
+
+    public float januaryRain() {
+        return rain * (1 - rainVariance);
+    }
+
+    public float julyRain() {
+        return rain * (1 + rainVariance);
+    }
+
+    public float groundwaterPotential() {
+        return Math.min(500, rain + baseGroundwater);
+    }
+
+    public Cell withClimate(float variance, float water, String zone) {
+        return new Cell(
+                rock,
+                biome,
+                rockType,
+                rain,
+                temperature,
+                altitude,
+                inland,
+                oceanDistance,
+                flags,
+                middleRock,
+                bottomRock,
+                variance,
+                water,
+                zone);
+    }
+
     public Cell(
             String rock,
             String biome,
@@ -57,7 +119,10 @@ public record Cell(
                 oceanDistance,
                 flags,
                 middleRock,
-                bottomRock);
+                bottomRock,
+                rainVariance,
+                baseGroundwater,
+                climateZone);
     }
 
     public boolean land() {

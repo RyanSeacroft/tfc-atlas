@@ -12,7 +12,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -54,49 +54,33 @@ public final class LegendScreen extends AtlasMenuScreen {
         return cachedEntries;
     }
 
-    private int columns() {
-        return Math.max(
-                2,
-                (entries.size() + Math.max(1, (height - 130) / 16) - 1)
-                        / Math.max(1, (height - 130) / 16));
-    }
-
-    private int rowHeight() {
-        return Math.min(
-                22, (height - 130) / Math.max(1, (entries.size() + columns() - 1) / columns()));
-    }
+    private LegendList list;
+    private Layer listedLayer;
+    private double scroll;
+    private int noteY;
 
     @Override
     protected void init() {
-        entries = entries(AtlasClient.profile);
-        int columns = columns(), pitch = rowHeight();
-        int content = Math.min(600, width - 30),
-                left = (width - content) / 2,
-                cell = content / columns;
-        for (int i = 0; i < entries.size(); i++) {
-            final var entry = entries.get(i);
-            int x = left + (i % columns) * cell, y = 48 + (i / columns) * pitch;
-            CompactButton b =
-                    new CompactButton(
-                                    entry.label(),
-                                    x + 14,
-                                    y,
-                                    cell - 18,
-                                    .7f,
-                                    button ->
-                                            minecraft.setScreen(
-                                                    new ColorScreen(
-                                                            this,
-                                                            AtlasClient.profile.selected(),
-                                                            entry)))
-                            .minecraftStyle();
-            b.setHeight(pitch - 2);
-            b.setTooltip(Tooltip.create(Component.literal(entry.label() + " · edit colour")));
-            addRenderableWidget(b);
+        if (list != null && listedLayer == AtlasClient.profile.selected()) {
+            scroll = list.getScrollAmount();
+        } else {
+            scroll = 0;
         }
+        listedLayer = AtlasClient.profile.selected();
+        entries = entries(AtlasClient.profile);
+        int content = Math.min(430, width - 24), left = (width - content) / 2;
+        var note =
+                font.split(
+                        Component.literal(
+                                listedLayer.legendNote(AtlasClient.profile.climateContinents)),
+                        content);
+        noteY = height - 38 - note.size() * 10;
+        list = addRenderableWidget(new LegendList(content, Math.max(36, noteY - 58), 48));
+        list.setX(left);
+        list.setScrollAmount(scroll);
         addRenderableWidget(
                 Button.builder(
-                                Component.literal("Layer: " + AtlasClient.profile.selected().label),
+                                Component.literal("Layer: " + listedLayer.label),
                                 b -> {
                                     Layer[] a = Layer.values();
                                     AtlasClient.profile.layer =
@@ -107,7 +91,7 @@ public final class LegendScreen extends AtlasMenuScreen {
                                     AtlasClient.save();
                                     rebuildWidgets();
                                 })
-                        .bounds(left, height - 30, Math.min(180, content - 80), 20)
+                        .bounds(left, height - 30, Math.min(280, content - 80), 20)
                         .build());
         addRenderableWidget(
                 Button.builder(Component.literal("Back"), b -> onClose())
@@ -116,37 +100,118 @@ public final class LegendScreen extends AtlasMenuScreen {
     }
 
     @Override
-    public void render(GuiGraphics g, int mx, int my, float d) {
-        renderBackground(g);
+    public void renderContent(GuiGraphics g, int mx, int my, float d) {
         g.drawCenteredString(
                 font, "Colour key · " + AtlasClient.profile.layerTitle(), width / 2, 12, 0xE8D9B6);
-        g.drawCenteredString(font, "Select a colour to edit", width / 2, 28, 0xB9B5A7);
-        int columns = columns(),
-                pitch = rowHeight(),
-                content = Math.min(600, width - 30),
-                left = (width - content) / 2;
-        for (int i = 0; i < entries.size(); i++) {
-            swatch(
-                    g,
-                    entries.get(i),
-                    left + (i % columns) * (content / columns),
-                    51 + (i / columns) * pitch,
-                    11,
-                    Math.max(4, pitch - 8));
-        }
-        var note =
+        g.drawCenteredString(
+                font, "Select a colour to edit · scroll for more", width / 2, 28, 0xB9B5A7);
+        int content = Math.min(430, width - 24), y = noteY;
+        for (var line :
                 font.split(
                         Component.literal(
                                 AtlasClient.profile
                                         .selected()
                                         .legendNote(AtlasClient.profile.climateContinents)),
-                        content);
-        int y = height - 36 - note.size() * 10;
-        for (var line : note) {
-            g.drawString(font, line, left, y, 0xB9B5A7);
+                        content)) {
+            g.drawString(font, line, (width - content) / 2, y, 0xB9B5A7);
             y += 10;
         }
-        super.render(g, mx, my, d);
+    }
+
+    private final class LegendList extends ObjectSelectionList<LegendRow> {
+        LegendList(int width, int height, int top) {
+            super(LegendScreen.this.minecraft, width, height, top, rowHeight(width));
+            entries.forEach(e -> addEntry(new LegendRow(e)));
+        }
+
+        @Override
+        public int getRowWidth() {
+            return getWidth() - 24;
+        }
+
+        @Override
+        protected int getScrollbarPosition() {
+            return getRight() - 6;
+        }
+    }
+
+    private int rowHeight(int width) {
+        return entries.stream()
+                .mapToInt(
+                        e ->
+                                font.split(Component.literal(e.label()), Math.max(30, width - 54))
+                                                        .size()
+                                                * 10
+                                        + 10)
+                .max()
+                .orElse(20);
+    }
+
+    private final class LegendRow extends ObjectSelectionList.Entry<LegendRow> {
+        private final Layer.LegendEntry entry;
+        private final Button skin =
+                Button.builder(Component.empty(), b -> edit()).bounds(0, 0, 100, 20).build();
+
+        LegendRow(Layer.LegendEntry entry) {
+            this.entry = entry;
+        }
+
+        @Override
+        public Component getNarration() {
+            return Component.literal(entry.label() + ", edit colour");
+        }
+
+        @Override
+        public void render(
+                GuiGraphics g,
+                int index,
+                int top,
+                int left,
+                int width,
+                int height,
+                int mx,
+                int my,
+                boolean hovered,
+                float delta) {
+            skin.setX(left);
+            skin.setY(top);
+            skin.setWidth(width);
+            skin.setHeight(height);
+            skin.setFocused(isFocused());
+            skin.render(g, mx, my, delta);
+            swatch(g, entry, left + 5, top + 4, 12, Math.min(12, height - 6));
+            int y = top + 4;
+            for (var line : font.split(Component.literal(entry.label()), width - 30)) {
+                g.drawString(font, line, left + 24, y, 0xFFFFFF);
+                y += 10;
+            }
+        }
+
+        private void edit() {
+            minecraft.setScreen(
+                    new ColorScreen(LegendScreen.this, AtlasClient.profile.selected(), entry));
+        }
+
+        @Override
+        public boolean mouseClicked(double x, double y, int button) {
+            if (button != 0) {
+                return false;
+            }
+            skin.playDownSound(minecraft.getSoundManager());
+            edit();
+            return true;
+        }
+
+        @Override
+        public boolean keyPressed(int key, int scan, int modifiers) {
+            if (key == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
+                    || key == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
+                    || key == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE) {
+                edit();
+                return true;
+            }
+            return false;
+        }
     }
 
     private static void swatch(
@@ -311,13 +376,11 @@ public final class LegendScreen extends AtlasMenuScreen {
         }
 
         @Override
-        public void render(GuiGraphics g, int x, int y, float d) {
-            renderBackground(g);
+        public void renderContent(GuiGraphics g, int x, int y, float d) {
             g.drawCenteredString(font, entry.label(), width / 2, 24, 0xffffff);
             g.drawCenteredString(
                     font, "RGB hex for the whole category/range", width / 2, 45, 0xCCCCCC);
             g.drawCenteredString(font, error, width / 2, 173, 0xFF9977);
-            super.render(g, x, y, d);
         }
 
         @Override

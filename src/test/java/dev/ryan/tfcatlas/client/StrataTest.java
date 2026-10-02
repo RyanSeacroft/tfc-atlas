@@ -198,14 +198,12 @@ public final class StrataTest {
         var zOffset = RegionChunkDataGenerator.class.getDeclaredMethod("getOffsetZ", int.class);
         zOffset.setAccessible(true);
         Noise2D noise = (x, z) -> 53 + 10 * Math.sin(x * .0017) * Math.cos(z * .0021);
-        var chunks =
-                new RegionChunkDataGenerator(null, null, null, null, noise, null, null, null, null);
         Random random = new Random(116);
         for (int i = 0; i < 1000; i++) {
             int x = random.nextInt(60_000_000) - 30_000_000,
                     z = random.nextInt(60_000_000) - 30_000_000;
             for (int expected = 0; expected < 3; expected++) {
-                int y = RockStrata.referenceY(chunks, x, z, expected);
+                int y = RockStrata.referenceY(noise, x, z, expected);
                 float delta = -y;
                 int layer = 0;
                 for (; ; ) {

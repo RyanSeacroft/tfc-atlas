@@ -2,4 +2,4 @@ TFC Atlas is an independent client-side addon; it is not affiliated with Xaero.
 The base rock and biome colours are adapted from TFCGenViewer by NotEnoughMail,
 MIT licensed. Its full licence is included in TFCGENVIEWER-LICENSE.txt.
 TFC's generation implementation is called from the installed TerraFirmaCraft
-mod; no TFC, Minecraft, Forge, Xaero or Patchouli classes are redistributed.
+mod; no TFC, Minecraft, NeoForge, Xaero or Patchouli classes are redistributed.

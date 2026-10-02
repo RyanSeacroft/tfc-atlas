@@ -4,16 +4,35 @@ package dev.ryan.tfcatlas.core;
 public final class MapLabels {
     public static boolean visible(String mode, Layer layer, double pixelsPerBlock, int sampleStep) {
         return !"Off".equals(mode)
-                && (layer == Layer.ROCKS || layer == Layer.BIOMES)
-                && sampleStep <= 8
-                && pixelsPerBlock * 128 >= 12;
+                && (layer == Layer.CLIMATE_ZONES
+                        ? pixelsPerBlock > 0
+                        : (layer == Layer.ROCKS || layer == Layer.BIOMES)
+                                && sampleStep <= 8
+                                && pixelsPerBlock * 128 >= 12);
     }
 
     public static String text(Layer layer, Cell cell) {
         return switch (layer) {
             case ROCKS -> Cell.label(cell.rock());
             case BIOMES -> Cell.label(cell.biome());
+            case CLIMATE_ZONES -> ClimateZones.label(cell.climateZone());
             default -> "";
+        };
+    }
+
+    public static String name(Layer layer, String id) {
+        return layer == Layer.CLIMATE_ZONES ? ClimateZones.label(id) : Cell.label(id);
+    }
+
+    public static String id(Layer layer, Cell c, RockLayer rocks, boolean continents) {
+        if (continents && layer.continentFill() && !c.land()) {
+            return null;
+        }
+        return switch (layer) {
+            case ROCKS -> c.rock(rocks);
+            case BIOMES -> c.biome();
+            case CLIMATE_ZONES -> c.climateZone();
+            default -> null;
         };
     }
 

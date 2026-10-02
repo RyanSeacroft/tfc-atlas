@@ -10,7 +10,7 @@ import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
  * heights.
  */
 final class RockStrata {
-    // TFC 3.2.18 RegionChunkDataGenerator's stable layer-offset sequence.
+    // TFC 4.2.11 RegionChunkDataGenerator's stable layer-offset sequence.
     private static final int[] OFFSETS = new int[16];
 
     static {
@@ -22,22 +22,38 @@ final class RockStrata {
 
     static int surfaceRegion(RegionChunkDataGenerator chunks, int x, int z) {
         // Same y=0, surfaceY=0 reference and DELTA_Y_OFFSET=12 as TFC's surface rock query.
-        float skewX = (float) chunks.layerSkewXNoise().noise(x + OFFSETS[0], z + OFFSETS[1]);
-        float skewZ = (float) chunks.layerSkewZNoise().noise(x + OFFSETS[0], z + OFFSETS[1]);
-        return chunks.rockLayerArea().get().get(x + (int) (skewX * 12), z + (int) (skewZ * 12))
+        float skewX =
+                (float)
+                        ((dev.ryan.tfcatlas.mixin.RockNoiseAccessor) (Object) chunks)
+                                .tfcatlas$skewX()
+                                .noise(x + OFFSETS[0], z + OFFSETS[1]);
+        float skewZ =
+                (float)
+                        ((dev.ryan.tfcatlas.mixin.RockNoiseAccessor) (Object) chunks)
+                                .tfcatlas$skewZ()
+                                .noise(x + OFFSETS[0], z + OFFSETS[1]);
+        return ((dev.ryan.tfcatlas.mixin.RockNoiseAccessor) (Object) chunks)
+                        .tfcatlas$rocks()
+                        .get()
+                        .get(x + (int) (skewX * 12), z + (int) (skewZ * 12))
                 & net.dries007.tfc.world.region.ChooseRocks.TYPE_MASK;
     }
 
     static int referenceY(RegionChunkDataGenerator chunks, int x, int z, int layer) {
+        return referenceY(
+                ((dev.ryan.tfcatlas.mixin.RockNoiseAccessor) (Object) chunks).tfcatlas$height(),
+                x,
+                z,
+                layer);
+    }
+
+    static int referenceY(net.dries007.tfc.world.noise.Noise2D noise, int x, int z, int layer) {
         if (layer < 0 || layer > 2) {
             throw new IllegalArgumentException("Only the first three strata are mapped");
         }
         float depth = 0;
         for (int i = 0; i < layer; i++) {
-            depth +=
-                    (float)
-                            chunks.layerHeightNoise()
-                                    .noise(x + OFFSETS[2 * i], z + OFFSETS[2 * i + 1]);
+            depth += (float) noise.noise(x + OFFSETS[2 * i], z + OFFSETS[2 * i + 1]);
         }
         // TFC includes the lower boundary in the layer above it. Step below it.
         return layer == 0 ? 0 : -(int) Math.floor(depth) - 1;

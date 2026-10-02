@@ -20,12 +20,17 @@ final class FineSampler {
     private final java.util.Map<BiomeExtension, String> biomeNames =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final RegionGenerator regions;
+    private final float hemisphereScale;
     private final RegionBiomeSource source;
     private final RegionChunkDataGenerator chunks;
     private final ThreadLocal<TerrainShapeSampler> terrainShape;
 
     FineSampler(
-            RegionGenerator regions, RegionBiomeSource source, RegionChunkDataGenerator chunks) {
+            RegionGenerator regions,
+            RegionBiomeSource source,
+            RegionChunkDataGenerator chunks,
+            float hemisphereScale) {
+        this.hemisphereScale = hemisphereScale;
         this.regions = regions;
         this.source = source;
         this.chunks = chunks;
@@ -64,17 +69,44 @@ final class FineSampler {
                         | (biome.biomeBlendType() == BiomeBlendType.LAKE ? 4 : 0)
                         | (mountain ? 8 : 0);
         return new Cell(
-                rock,
-                id,
-                RockStrata.surfaceRegion(chunks, x, z),
-                data.getRainfall(x, z),
-                data.getAverageTemp(x, z),
-                altitude,
-                point.baseLandHeight,
-                point.distanceToOcean,
-                flags,
-                rock(x, RockStrata.referenceY(chunks, x, z, 1), z, 0),
-                rock(x, RockStrata.referenceY(chunks, x, z, 2), z, 0));
+                        rock,
+                        id,
+                        RockStrata.surfaceRegion(chunks, x, z),
+                        data.getAverageRainfall(x, z),
+                        data.getAverageSeaLevelTemp(x, z),
+                        altitude,
+                        point.baseLandHeight,
+                        point.distanceToOcean,
+                        flags,
+                        rock(x, RockStrata.referenceY(chunks, x, z, 1), z, 0),
+                        rock(x, RockStrata.referenceY(chunks, x, z, 2), z, 0))
+                .withClimate(
+                        data.getRainVariance(x, z),
+                        data.getBaseGroundwater(x, z),
+                        zone(
+                                data.getAverageSeaLevelTemp(x, z),
+                                data.getAverageRainfall(x, z),
+                                data.getRainVariance(x, z),
+                                z));
+    }
+
+    String zone(float temp, float rain, float variance, int z) {
+        return net.dries007.tfc.util.climate.KoppenClimateClassification.classify(
+                        temp,
+                        rain,
+                        variance,
+                        net.dries007.tfc.client.overworld.SolarCalculator.getInNorthernHemisphere(
+                                z, hemisphereScale))
+                .name();
+    }
+
+    Cell climate(Cell cell, int x, int z) {
+        var data = new ChunkData(chunks, new ChunkPos(Math.floorDiv(x, 16), Math.floorDiv(z, 16)));
+        chunks.generate(data);
+        return cell.withClimate(
+                data.getRainVariance(x, z),
+                data.getBaseGroundwater(x, z),
+                zone(cell.temperature(), cell.rain(), data.getRainVariance(x, z), z));
     }
 
     String rock(int x, int y, int z, int surfaceY) {

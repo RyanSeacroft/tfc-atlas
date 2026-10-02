@@ -2,7 +2,9 @@ package dev.ryan.tfcatlas.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.ryan.tfcatlas.core.RockLayer;
@@ -19,7 +21,7 @@ import java.util.concurrent.Executors;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.client.event.RegisterShadersEvent;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import org.joml.Matrix4f;
 
 /** Exact outline vertices are built once off-thread; camera movement only changes GPU matrices. */
@@ -31,7 +33,7 @@ final class SearchOutlines {
             event.registerShader(
                     new ShaderInstance(
                             event.getResourceProvider(),
-                            new ResourceLocation("tfcatlas", "search_outline"),
+                            ResourceLocation.fromNamespaceAndPath("tfcatlas", "search_outline"),
                             DefaultVertexFormat.POSITION_TEX_COLOR),
                     loaded -> shader = loaded);
         } catch (IOException ex) {
@@ -43,7 +45,7 @@ final class SearchOutlines {
 
     private record Mesh(SearchOverlay.OutlineGroup group, VertexBuffer buffer) {}
 
-    private record Prepared(SearchOverlay.OutlineGroup group, BufferBuilder.RenderedBuffer data) {}
+    private record Prepared(SearchOverlay.OutlineGroup group, MeshData data) {}
 
     private final Map<Long, Mesh> meshes = new HashMap<>();
     private final ExecutorService worker =
@@ -55,13 +57,13 @@ final class SearchOutlines {
                     });
     // BufferBuilder owns native memory. Reuse one builder, and release each rendered view before
     // reuse.
-    private BufferBuilder builder;
+    private ByteBufferBuilder storage;
     private CompletableFuture<Prepared> pending;
     private Object series;
 
     void clear() {
         if (pending != null) {
-            pending.thenAccept(p -> p.data.release());
+            pending.thenAccept(p -> p.data.close());
             pending = null;
         }
         meshes.values().forEach(m -> m.buffer.close());
@@ -171,10 +173,12 @@ final class SearchOutlines {
     }
 
     private Prepared prepare(SearchOverlay.OutlineGroup group, boolean layered) {
-        if (builder == null) {
-            builder = new BufferBuilder(4096);
+        if (storage == null) {
+            storage = new ByteBufferBuilder(4096);
         }
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder builder =
+                new BufferBuilder(
+                        storage, VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (var edge : group.edges()) {
             float x0 = edge.x0() - group.blockX(),
                     z0 = edge.z0() - group.blockZ(),
@@ -186,11 +190,11 @@ final class SearchOutlines {
             }
             float nx = -dz / length * .5f, nz = dx / length * .5f;
             int colour = 0xFF000000 | (layered ? RockLayer.colour(edge.layerMask()) : 0xFFFFFF);
-            builder.vertex(x0, z0, 0).uv(nx, nz).color(colour).endVertex();
-            builder.vertex(x0, z0, 0).uv(-nx, -nz).color(colour).endVertex();
-            builder.vertex(x1, z1, 0).uv(-nx, -nz).color(colour).endVertex();
-            builder.vertex(x1, z1, 0).uv(nx, nz).color(colour).endVertex();
+            builder.addVertex(x0, z0, 0).setUv(nx, nz).setColor(colour);
+            builder.addVertex(x0, z0, 0).setUv(-nx, -nz).setColor(colour);
+            builder.addVertex(x1, z1, 0).setUv(-nx, -nz).setColor(colour);
+            builder.addVertex(x1, z1, 0).setUv(nx, nz).setColor(colour);
         }
-        return new Prepared(group, builder.end());
+        return new Prepared(group, builder.buildOrThrow());
     }
 }

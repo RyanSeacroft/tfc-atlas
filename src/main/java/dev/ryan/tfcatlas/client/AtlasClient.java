@@ -1,6 +1,7 @@
 package dev.ryan.tfcatlas.client;
 
 import dev.ryan.tfcatlas.core.Cell;
+import dev.ryan.tfcatlas.core.ClimateZones;
 import dev.ryan.tfcatlas.core.HudLayout;
 import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.RockLayer;
@@ -17,12 +18,12 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
-import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
-import net.minecraftforge.client.event.ScreenEvent;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
 
 public final class AtlasClient {
@@ -51,18 +52,16 @@ public final class AtlasClient {
     private static final KeyMapping HOLD =
             new KeyMapping("key.tfcatlas.hold", GLFW.GLFW_KEY_UNKNOWN, "key.categories.tfcatlas");
 
-    public static void init() {
-        FMLJavaModLoadingContext.get()
-                .getModEventBus()
-                .addListener(
-                        (RegisterKeyMappingsEvent e) -> {
-                            e.register(OPEN);
-                            e.register(TOGGLE);
-                            e.register(HOLD);
-                        });
-        FMLJavaModLoadingContext.get().getModEventBus().addListener(SearchOutlines::register);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::screenInit);
-        MinecraftForge.EVENT_BUS.addListener(
+    public static void init(IEventBus modBus) {
+        modBus.addListener(
+                (RegisterKeyMappingsEvent e) -> {
+                    e.register(OPEN);
+                    e.register(TOGGLE);
+                    e.register(HOLD);
+                });
+        modBus.addListener(SearchOutlines::register);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::screenInit);
+        NeoForge.EVENT_BUS.addListener(
                 (ClientPlayerNetworkEvent.LoggingOut e) -> {
                     close();
                     world = "";
@@ -70,14 +69,14 @@ public final class AtlasClient {
                     view = null;
                     profile = new Profile();
                 });
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::beforeUiRender);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::renderUi);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::key);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::keyUp);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::tick);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::mousePressed);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::mouseDragged);
-        MinecraftForge.EVENT_BUS.addListener(AtlasClient::mouseReleased);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::beforeUiRender);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::renderUi);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::key);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::keyUp);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::tick);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::mousePressed);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::mouseDragged);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::mouseReleased);
     }
 
     private static void ensure(Screen s) throws Exception {
@@ -143,6 +142,7 @@ public final class AtlasClient {
                             "Atlas prediction engine started with the map {}",
                             XaeroBridge.isMap(Minecraft.getInstance().screen) ? "open" : "closed");
         } catch (Exception ex) {
+            com.mojang.logging.LogUtils.getLogger().warn("Atlas prediction startup failed", ex);
             String text = "Cannot load prediction settings: " + ex.getClass().getSimpleName();
             if (announce) {
                 message(text);
@@ -178,10 +178,7 @@ public final class AtlasClient {
                 "Starts during play; opening the map is not required.");
     }
 
-    private static void tick(TickEvent.ClientTickEvent e) {
-        if (e.phase != TickEvent.Phase.END) {
-            return;
-        }
+    private static void tick(ClientTickEvent.Post e) {
         var mc = Minecraft.getInstance();
         if (mc.level == null && !world.isEmpty()) {
             close();
@@ -476,6 +473,10 @@ public final class AtlasClient {
                 Cell c = engine.cell(hoverX, hoverZ);
                 lines.add("X " + hoverX + "  Z " + hoverZ + " · " + renderer.notice);
                 if (c != null) {
+                    lines.add("Climate zone: " + ClimateZones.label(c.climateZone()));
+                    if (profile.selected().climate() && profile.selected() != Layer.CLIMATE_ZONES) {
+                        lines.add(profile.selected().value(c));
+                    }
                     lines.add(
                             profile.selectedRockLayer().label
                                     + ": "

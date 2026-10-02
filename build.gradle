@@ -2,26 +2,24 @@ plugins {
     id 'java'
     id 'checkstyle'
     id 'com.diffplug.spotless' version '7.2.1'
-    id 'net.neoforged.moddev.legacyforge' version "${moddev_version}"
+    id 'net.neoforged.moddev' version "${moddev_version}"
 }
 
 apply from: 'gradle/atlas.gradle'
 
-legacyForge {
+neoForge {
     version = loader_version
     mods { tfcatlas { sourceSet(sourceSets.main) } }
     runs {
         client {
             client()
             gameDirectory = project.file('run')
-            programArgument '-mixin.config=tfcatlas.mixins.json'
         }
     }
 }
 
 repositories {
     mavenCentral()
-    maven { url = 'https://www.cursemaven.com' }
     maven { url = 'https://maven.blamejared.com' }
     exclusiveContent {
         forRepository { maven { url = 'https://api.modrinth.com/maven' } }
@@ -30,27 +28,18 @@ repositories {
 }
 
 dependencies {
-    modImplementation tfc_dependency
-    modRuntimeOnly patchouli_dependency
-    modRuntimeOnly xaero_dependency
-    modRuntimeOnly minimap_dependency
-    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
-    testImplementation 'com.google.code.gson:gson:2.10'
-    // Match Minecraft's runtime logging for tests that run outside Forge.
-    testRuntimeOnly 'org.slf4j:slf4j-api:2.0.1'
-    testRuntimeOnly 'org.apache.logging.log4j:log4j-core:2.19.0'
+    implementation tfc_dependency
+    runtimeOnly patchouli_dependency
+    runtimeOnly xaero_dependency
+    runtimeOnly minimap_dependency
+    testImplementation 'com.google.code.gson:gson:2.10.1'
 }
-
-mixin {
-    add sourceSets.main, 'tfcatlas.refmap.json'
-    config 'tfcatlas.mixins.json'
-}
-jar { manifest.attributes('MixinConfigs': 'tfcatlas.mixins.json') }
 
 // Optional in-game test harness. Release packaging rejects this mode.
 if (project.hasProperty('atlasSmoke')) {
-    sourceSets.main.java.srcDir 'src/smoke/java'
-    legacyForge.runs.client {
+    sourceSets.main.java.srcDirs 'src/smoke/java', 'src/test/java'
+    sourceSets.main.java.exclude 'net/**'
+    neoForge.runs.client {
         systemProperty 'tfcatlas.smoke', 'true'
         programArgument '--username'
         programArgument 'AtlasTest'

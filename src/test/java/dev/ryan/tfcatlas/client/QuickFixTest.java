@@ -101,7 +101,7 @@ public final class QuickFixTest {
     private static void legends() throws Exception {
         JsonObject graph;
         try (var in =
-                QuickFixTest.class.getResourceAsStream(
+                net.dries007.tfc.world.settings.Settings.class.getResourceAsStream(
                         "/data/tfc/worldgen/world_preset/overworld.json")) {
             graph =
                     JsonParser.parseReader(new InputStreamReader(Objects.requireNonNull(in)))
@@ -118,8 +118,8 @@ public final class QuickFixTest {
                 possible.get(RockLayer.TOP).contains("tfc:rock/raw/limestone"),
                 "Sedimentary surface rock exists");
         check(
-                possible.get(RockLayer.MIDDLE).contains("tfc:rock/raw/limestone"),
-                "Uplift transitions allow sedimentary middle rock");
+                !possible.get(RockLayer.MIDDLE).contains("tfc:rock/raw/limestone"),
+                "TFC 1.21 excludes limestone from the middle stratum");
         check(
                 !possible.get(RockLayer.BOTTOM).contains("tfc:rock/raw/limestone"),
                 "Sedimentary rock is excluded from bottom key");

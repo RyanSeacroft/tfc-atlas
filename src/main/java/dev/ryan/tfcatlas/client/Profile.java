@@ -32,11 +32,12 @@ public class Profile {
     public Map<String, int[]> keySizes = new HashMap<>();
     public Map<String, Double> keyScales = new HashMap<>();
     public int uiRevision = 6, searchRevision = 2, coverageRevision = 1;
+    public int cacheRevision = 1;
     public int highlightColor = 0xFFFF55,
             outline = 1,
             labelSpacing = 100,
-            memoryTiles = 512,
-            diskMB = 256,
+            memoryTiles = 2048,
+            diskMB = 1024,
             toolbarX = 32,
             toolbarY = 40;
     public int spawnX = 0,
@@ -45,7 +46,9 @@ public class Profile {
             temperatureScale = 20000,
             rainfallScale = 20000;
     public float continentalness = .5f, temperatureConstant = 0, rainfallConstant = 0;
-    public boolean useLocalSettings = true;
+    public boolean useLocalSettings = true, finiteContinents = false;
+    public String climateZones = "";
+    public float minGroundwater = -Float.MAX_VALUE, maxGroundwater = Float.MAX_VALUE;
     public String rocks = "", biomes = "", categories = "", feature = "";
     public String precision = "Auto",
             rockLayer = "Top",
@@ -63,7 +66,15 @@ public class Profile {
             minTemp = -Float.MAX_VALUE,
             maxTemp = Float.MAX_VALUE;
     public static final Set<String> OPTIONAL_LIMITS =
-            Set.of("minRain", "maxRain", "minTemp", "maxTemp", "minY", "maxY");
+            Set.of(
+                    "minGroundwater",
+                    "maxGroundwater",
+                    "minRain",
+                    "maxRain",
+                    "minTemp",
+                    "maxTemp",
+                    "minY",
+                    "maxY");
 
     public String searchValue(String key) {
         try {
@@ -86,6 +97,9 @@ public class Profile {
     }
 
     public void clearSearchSettings() {
+        climateZones = "";
+        minGroundwater = -Float.MAX_VALUE;
+        maxGroundwater = Float.MAX_VALUE;
         rocks = biomes = categories = feature = "";
         precision = "Auto";
         searchRockLayer = "Top";
@@ -145,7 +159,10 @@ public class Profile {
                 SearchQuery.terrain(feature),
                 minY,
                 maxY,
-                searchRockLayer);
+                searchRockLayer,
+                SearchQuery.names(climateZones),
+                minGroundwater,
+                maxGroundwater);
     }
 
     public RockLayer selectedRockLayer() {
@@ -167,6 +184,10 @@ public class Profile {
             chosen = Layer.ROCK_TYPES;
         } else if (!q.features().isEmpty()) {
             chosen = Layer.RIVERS;
+        } else if (!q.climateZones().isEmpty()) {
+            chosen = Layer.CLIMATE_ZONES;
+        } else if (minGroundwater != -Float.MAX_VALUE || maxGroundwater != Float.MAX_VALUE) {
+            chosen = Layer.GROUNDWATER;
         } else if (q.heightRestricted()) {
             chosen = Layer.ALTITUDE;
         } else {

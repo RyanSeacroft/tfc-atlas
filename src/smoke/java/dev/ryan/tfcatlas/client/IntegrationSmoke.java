@@ -1,6 +1,7 @@
 package dev.ryan.tfcatlas.client;
 
 import dev.ryan.tfcatlas.core.Cell;
+import dev.ryan.tfcatlas.core.CoreTest;
 import dev.ryan.tfcatlas.core.SearchQuery;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,14 +20,12 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.levelgen.WorldOptions;
-import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /** Opt-in development-only integration harness. Not included in the release JAR. */
-@Mod.EventBusSubscriber(modid = "tfcatlas", value = Dist.CLIENT)
+@net.neoforged.fml.common.EventBusSubscriber(modid = "tfcatlas", value = Dist.CLIENT)
 public final class IntegrationSmoke {
     private static int phase = 0, ticks = 0;
     private static long start;
@@ -47,10 +46,8 @@ public final class IntegrationSmoke {
     }
 
     @SubscribeEvent
-    public static void tick(TickEvent.ClientTickEvent event) {
-        if (!Boolean.getBoolean("tfcatlas.smoke")
-                || event.phase != TickEvent.Phase.END
-                || phase < 0) {
+    public static void tick(ClientTickEvent.Post event) {
+        if (!Boolean.getBoolean("tfcatlas.smoke") || phase < 0) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -66,6 +63,9 @@ public final class IntegrationSmoke {
             }
             if (phase == 0 && mc.screen instanceof TitleScreen) {
                 log("START");
+                System.setProperty("tfcatlas.gameTests", "true");
+                CoreTest.main(new String[0]);
+                log("REGRESSION_TESTS_PASS");
                 start = System.currentTimeMillis();
                 phase = 1;
                 Class.forName("xaero.map.gui.GuiMap");
@@ -73,7 +73,8 @@ public final class IntegrationSmoke {
                 mc.options.renderDistance().set(2);
                 mc.options.simulationDistance().set(2);
                 if (Files.isDirectory(mc.gameDirectory.toPath().resolve("saves/atlas-smoke"))) {
-                    mc.createWorldOpenFlows().loadLevel(new TitleScreen(), "atlas-smoke");
+                    mc.createWorldOpenFlows()
+                            .openWorld("atlas-smoke", () -> mc.setScreen(new TitleScreen()));
                 } else {
                     mc.createWorldOpenFlows()
                             .createFreshLevel(
@@ -90,8 +91,11 @@ public final class IntegrationSmoke {
                                     registries ->
                                             registries
                                                     .registryOrThrow(Registries.WORLD_PRESET)
-                                                    .get(new ResourceLocation("tfc", "overworld"))
-                                                    .createWorldDimensions());
+                                                    .get(
+                                                            ResourceLocation.fromNamespaceAndPath(
+                                                                    "tfc", "overworld"))
+                                                    .createWorldDimensions(),
+                                    new TitleScreen());
                 }
             } else if (phase == 1 && mc.player != null && ++ticks > 120) {
                 // Do not open Xaero until real persistent tiles have been saved during play.
@@ -178,26 +182,38 @@ public final class IntegrationSmoke {
                 var stockSource =
                         (net.dries007.tfc.world.biome.BiomeSourceExtension)
                                 serverGenerator.getBiomeSource();
-                var random = new XoroshiroRandomSource(engine.seed);
+                var random = net.dries007.tfc.world.Seed.of(engine.seed);
                 var heightRegions =
                         new net.dries007.tfc.world.region.RegionGenerator(engine.settings, random);
                 var localChunks =
-                        net.dries007.tfc.world.chunkdata.RegionChunkDataGenerator.create(
-                                random.nextLong(),
-                                engine.settings.rockLayerSettings(),
-                                heightRegions);
+                        (net.dries007.tfc.world.chunkdata.RegionChunkDataGenerator)
+                                heightRegions.chunkDataGenerator();
+                var localSource =
+                        new net.dries007.tfc.world.biome.RegionBiomeSource(
+                                mc.level.registryAccess().lookupOrThrow(Registries.BIOME));
+                localSource.initRandomState(
+                        heightRegions,
+                        new net.dries007.tfc.world.layer.framework.ConcurrentArea<>(
+                                net.dries007.tfc.world.layer.TFCLayers.createRegionBiomeLayer(
+                                        heightRegions, random),
+                                net.dries007.tfc.world.layer.TFCLayers::getFromLayerId));
                 var heightSampler =
                         new TerrainHeightSampler(
                                 engine.seed,
-                                random.nextLong(),
+                                localSource,
+                                engine.settings,
+                                mc.level.registryAccess(),
+                                localChunks);
+                var localFine =
+                        new FineSampler(
                                 heightRegions,
-                                mc.level.registryAccess().lookupOrThrow(Registries.BIOME));
-                var localFine = new FineSampler(heightRegions, heightSampler.source, localChunks);
+                                localSource,
+                                localChunks,
+                                engine.settings.temperatureScale());
                 int verified = 0, heightChecks = 0;
                 for (var r : engine.results) {
                     var pos = new ChunkPos(Math.floorDiv(r.x(), 16), Math.floorDiv(r.z(), 16));
-                    var stockData =
-                            serverGenerator.chunkDataProvider().createAndGeneratePartial(pos);
+                    var stockData = serverGenerator.chunkDataGenerator().createAndGenerate(pos);
                     String stockBiome =
                             stockSource
                                     .getBiomeExtension(
@@ -215,11 +231,28 @@ public final class IntegrationSmoke {
                                                     .raw())
                                     .toString();
                     Cell c = r.cell();
-                    if (c.rain() != stockData.getRainfall(r.x(), r.z())
-                            || c.temperature() != stockData.getAverageTemp(r.x(), r.z())
+                    if (c.rain() != stockData.getAverageRainfall(r.x(), r.z())
+                            || c.temperature() != stockData.getAverageSeaLevelTemp(r.x(), r.z())
                             || !c.biome().equals(stockBiome)
                             || !c.rock().equals(stockRock)) {
                         throw new AssertionError("Fine generation mismatch");
+                    }
+                    if (c.rainVariance() != stockData.getRainVariance(r.x(), r.z())
+                            || c.baseGroundwater() != stockData.getBaseGroundwater(r.x(), r.z())) {
+                        throw new AssertionError("TFC 1.21 climate sample mismatch");
+                    }
+                    String climate =
+                            net.dries007.tfc.util.climate.KoppenClimateClassification.classify(
+                                            c.temperature(),
+                                            c.rain(),
+                                            c.rainVariance(),
+                                            net.dries007.tfc.client.overworld.SolarCalculator
+                                                    .getInNorthernHemisphere(
+                                                            r.z(),
+                                                            engine.settings.temperatureScale()))
+                                    .name();
+                    if (!c.climateZone().equals(climate)) {
+                        throw new AssertionError("Climate zone mismatch");
                     }
                     verified++;
                     int expected =
@@ -238,8 +271,7 @@ public final class IntegrationSmoke {
                                     net.minecraft.core.registries.BuiltInRegistries.BLOCK
                                             .getKey(
                                                     serverGenerator
-                                                            .chunkDataProvider()
-                                                            .generator()
+                                                            .chunkDataGenerator()
                                                             .generateRock(
                                                                     r.x(), y, r.z(), expected, null)
                                                             .raw())
@@ -253,6 +285,7 @@ public final class IntegrationSmoke {
                 }
                 log("TFC_SURFACE_Y_COMPARISON_PASS " + heightChecks);
                 log("TFC_SAMPLE_COMPARISON_PASS " + verified);
+                log("TFC_121_CLIMATE_COMPARISON_PASS " + verified);
                 log("SEARCH " + engine.searchStatus);
                 screenshot("01-map-rocks");
                 AtlasClient.profile.layer = "RAINFALL";
@@ -260,6 +293,20 @@ public final class IntegrationSmoke {
                 ticks = 0;
             } else if (phase == 4 && ++ticks > 60) {
                 screenshot("02-map-rainfall");
+                AtlasClient.profile.layer = "CLIMATE_ZONES";
+                AtlasClient.profile.mapLabels = "Active layer";
+                AtlasClient.profile.highlights = false;
+                phase = 40;
+                ticks = 0;
+            } else if (phase == 40 && ++ticks > 60) {
+                screenshot("09-climate-zones");
+                AtlasClient.profile.layer = "GROUNDWATER";
+                phase = 41;
+                ticks = 0;
+            } else if (phase == 41 && ++ticks > 60) {
+                screenshot("10-groundwater");
+                AtlasClient.profile.layer = "RAINFALL";
+                AtlasClient.profile.highlights = true;
                 AtlasClient.profile.mode = "Unexplored only";
                 phase = 5;
                 ticks = 0;
@@ -285,6 +332,59 @@ public final class IntegrationSmoke {
                 ticks = 0;
             } else if (phase == 8 && ++ticks > 20) {
                 screenshot("06-legend-ui");
+                AtlasClient.profile.layer = "BIOMES";
+                mc.setScreen(new LegendScreen(map));
+                phase = 81;
+                ticks = 0;
+            } else if (phase == 81 && ++ticks > 10) {
+                screenshot("11-biome-key");
+                AtlasClient.profile.layer = "CLIMATE_ZONES";
+                mc.setScreen(new LegendScreen(map));
+                phase = 82;
+                ticks = 0;
+            } else if (phase == 82 && ++ticks > 10) {
+                screenshot("12-climate-key");
+                mc.screen.mouseScrolled(mc.screen.width / 2, 90, 0, -18);
+                phase = 83;
+                ticks = 0;
+            } else if (phase == 83 && ++ticks > 10) {
+                screenshot("13-climate-key-scrolled");
+                mc.setScreen(new AtlasScreen(map, 1));
+                var box =
+                        mc.screen.children().stream()
+                                .filter(
+                                        w ->
+                                                w instanceof CompactEditBox
+                                                        && ((CompactEditBox) w)
+                                                                .getMessage()
+                                                                .getString()
+                                                                .startsWith("Climate zones"))
+                                .map(w -> (CompactEditBox) w)
+                                .findFirst()
+                                .orElseThrow();
+                box.value("humid tropical, tropical monsoon, coastal cold subar");
+                mc.screen.setFocused(box);
+                phase = 84;
+                ticks = 0;
+            } else if (phase == 84 && ++ticks > 10) {
+                screenshot("14-autocomplete-long");
+                var box = (CompactEditBox) mc.screen.getFocused();
+                var input =
+                        (net.minecraft.client.gui.components.EditBox)
+                                XaeroBridge.field(box, "input");
+                int start =
+                        ((dev.ryan.tfcatlas.mixin.EditBoxAccessor) (Object) input)
+                                .tfcatlas$displayPos();
+                String preview = box.value().substring(start) + "ctic";
+                if (start == 0 || mc.font.width(preview) > input.getInnerWidth()) {
+                    throw new AssertionError(
+                            "Completion must scroll fully into the field before Tab");
+                }
+                log("AUTOCOMPLETE_PREVIEW_FITS_BEFORE_TAB");
+                box.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB, 0, 0);
+                if (!box.value().endsWith("coastal cold subarctic")) {
+                    throw new AssertionError("Long climate autocomplete failed");
+                }
                 var result = AtlasClient.engine.results.get(0);
                 XaeroBridge.waypoint(map, result.x(), result.z(), "Granite test candidate");
                 phase = 9;

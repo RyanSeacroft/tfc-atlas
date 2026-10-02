@@ -14,7 +14,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 public record Tile(Key key, Cell[] cells) {
-    public static final int SIDE = 32, GRID = 8, FORMAT = 4;
+    public static final int SIDE = 32, GRID = 8, FORMAT = 5;
 
     public record Key(int x, int z, int step) {
         public Key {
@@ -80,6 +80,9 @@ public record Tile(Key key, Cell[] cells) {
                     d.writeByte(c.flags());
                     d.writeUTF(c.middleRock());
                     d.writeUTF(c.bottomRock());
+                    d.writeFloat(c.rainVariance());
+                    d.writeFloat(c.baseGroundwater());
+                    d.writeUTF(c.climateZone());
                 }
             }
             try {
@@ -132,7 +135,16 @@ public record Tile(Key key, Cell[] cells) {
                                 ocean,
                                 flags,
                                 d.readUTF(),
+                                d.readUTF(),
+                                d.readFloat(),
+                                d.readFloat(),
                                 d.readUTF());
+                if (!Float.isFinite(a[i].rainVariance())
+                        || Math.abs(a[i].rainVariance()) > 1
+                        || !Float.isFinite(a[i].baseGroundwater())
+                        || a[i].baseGroundwater() < 0) {
+                    throw new IOException("Invalid climate cache");
+                }
             }
             if (d.read() != -1) {
                 throw new IOException("Trailing cache data");

@@ -69,6 +69,15 @@ public final class Profiles {
 
     public static Profile decode(JsonObject stored) {
         Profile profile = JSON.fromJson(stored, Profile.class);
+        if (!stored.has("cacheRevision")) {
+            if (profile.memoryTiles == 512) {
+                profile.memoryTiles = 2048;
+            }
+            if (profile.diskMB == 256) {
+                profile.diskMB = 1024;
+            }
+        }
+        profile.cacheRevision = 1;
         // The old independent enable switch is now the Off state of the coverage cycle.
         if (stored.has("enabled") && !stored.get("enabled").getAsBoolean()) {
             profile.mode = "Off";
@@ -115,6 +124,8 @@ public final class Profiles {
         }
         profile.coverageRevision = 1;
         profile.searchRevision = 2;
+        profile.climateZones =
+                dev.ryan.tfcatlas.core.ClimateZones.displayList(profile.climateZones);
         profile.uiRevision = 6;
         profile.validate();
         return profile;
@@ -129,6 +140,9 @@ public final class Profiles {
         JsonObject result = new JsonObject();
         for (String key :
                 new String[] {
+                    "climateZones",
+                    "minGroundwater",
+                    "maxGroundwater",
                     "rocks",
                     "biomes",
                     "categories",

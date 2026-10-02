@@ -11,8 +11,17 @@ final class HoverEditBox extends EditBox {
         setCanLoseFocus(true);
     }
 
+    private net.minecraft.client.gui.components.Tooltip hoverTooltip;
+
     @Override
-    public void render(GuiGraphics g, int x, int y, float delta) {
-        HoverTooltips.render(this, x, y, () -> super.render(g, x, y, delta));
+    public void setTooltip(net.minecraft.client.gui.components.Tooltip tooltip) {
+        hoverTooltip = tooltip;
+        super.setTooltip(tooltip);
+    }
+
+    @Override
+    public void renderWidget(GuiGraphics g, int x, int y, float d) {
+        super.setTooltip(isMouseOver(x, y) ? hoverTooltip : null);
+        super.renderWidget(g, x, y, d);
     }
 }
