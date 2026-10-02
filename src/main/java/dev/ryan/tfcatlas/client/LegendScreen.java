@@ -1,0 +1,328 @@
+package dev.ryan.tfcatlas.client;
+
+import dev.ryan.tfcatlas.core.HudLayout;
+import dev.ryan.tfcatlas.core.KeyLayout;
+import dev.ryan.tfcatlas.core.Layer;
+import dev.ryan.tfcatlas.core.RockPossibilities;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+
+public final class LegendScreen extends AtlasMenuScreen {
+    private final Screen parent;
+    private List<Layer.LegendEntry> entries;
+    private static Layer cachedLayer;
+    private static boolean cachedAccessible, cachedContinents;
+    private static Map<String, Integer> cachedColours = Map.of();
+    private static List<Layer.LegendEntry> cachedEntries = List.of();
+    private static Set<String> cachedRocks = Set.of();
+
+    public LegendScreen(Screen parent) {
+        super(Component.literal("TFC layer key"));
+        this.parent = parent;
+    }
+
+    public static List<Layer.LegendEntry> entries(Profile p) {
+        Set<String> rocks =
+                p.selected() == Layer.ROCKS && AtlasClient.engine != null
+                        ? AtlasClient.engine.possibleRocks(p.selectedRockLayer())
+                        : Set.of();
+        if (cachedLayer != p.selected()
+                || cachedAccessible != p.accessible
+                || cachedContinents != p.climateContinents
+                || !cachedColours.equals(p.colors)
+                || !cachedRocks.equals(rocks)) {
+            cachedLayer = p.selected();
+            cachedAccessible = p.accessible;
+            cachedContinents = p.climateContinents;
+            cachedColours = Map.copyOf(p.colors);
+            cachedRocks = rocks;
+            cachedEntries =
+                    p.selected() == Layer.ROCKS && !rocks.isEmpty()
+                            ? RockPossibilities.legend(
+                                    rocks, p.accessible, p.colors, p.climateContinents)
+                            : p.selected().legend(p.accessible, p.colors, p.climateContinents);
+        }
+        return cachedEntries;
+    }
+
+    private int columns() {
+        return Math.max(
+                2,
+                (entries.size() + Math.max(1, (height - 130) / 16) - 1)
+                        / Math.max(1, (height - 130) / 16));
+    }
+
+    private int rowHeight() {
+        return Math.min(
+                22, (height - 130) / Math.max(1, (entries.size() + columns() - 1) / columns()));
+    }
+
+    @Override
+    protected void init() {
+        entries = entries(AtlasClient.profile);
+        int columns = columns(), pitch = rowHeight();
+        int content = Math.min(600, width - 30),
+                left = (width - content) / 2,
+                cell = content / columns;
+        for (int i = 0; i < entries.size(); i++) {
+            final var entry = entries.get(i);
+            int x = left + (i % columns) * cell, y = 48 + (i / columns) * pitch;
+            CompactButton b =
+                    new CompactButton(
+                                    entry.label(),
+                                    x + 14,
+                                    y,
+                                    cell - 18,
+                                    .7f,
+                                    button ->
+                                            minecraft.setScreen(
+                                                    new ColorScreen(
+                                                            this,
+                                                            AtlasClient.profile.selected(),
+                                                            entry)))
+                            .minecraftStyle();
+            b.setHeight(pitch - 2);
+            b.setTooltip(Tooltip.create(Component.literal(entry.label() + " · edit colour")));
+            addRenderableWidget(b);
+        }
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("Layer: " + AtlasClient.profile.selected().label),
+                                b -> {
+                                    Layer[] a = Layer.values();
+                                    AtlasClient.profile.layer =
+                                            a[
+                                                    (AtlasClient.profile.selected().ordinal() + 1)
+                                                            % a.length]
+                                                    .name();
+                                    AtlasClient.save();
+                                    rebuildWidgets();
+                                })
+                        .bounds(left, height - 30, Math.min(180, content - 80), 20)
+                        .build());
+        addRenderableWidget(
+                Button.builder(Component.literal("Back"), b -> onClose())
+                        .bounds(left + content - 74, height - 30, 74, 20)
+                        .build());
+    }
+
+    @Override
+    public void render(GuiGraphics g, int mx, int my, float d) {
+        renderBackground(g);
+        g.drawCenteredString(
+                font, "Colour key · " + AtlasClient.profile.layerTitle(), width / 2, 12, 0xE8D9B6);
+        g.drawCenteredString(font, "Select a colour to edit", width / 2, 28, 0xB9B5A7);
+        int columns = columns(),
+                pitch = rowHeight(),
+                content = Math.min(600, width - 30),
+                left = (width - content) / 2;
+        for (int i = 0; i < entries.size(); i++) {
+            swatch(
+                    g,
+                    entries.get(i),
+                    left + (i % columns) * (content / columns),
+                    51 + (i / columns) * pitch,
+                    11,
+                    Math.max(4, pitch - 8));
+        }
+        var note =
+                font.split(
+                        Component.literal(
+                                AtlasClient.profile
+                                        .selected()
+                                        .legendNote(AtlasClient.profile.climateContinents)),
+                        content);
+        int y = height - 36 - note.size() * 10;
+        for (var line : note) {
+            g.drawString(font, line, left, y, 0xB9B5A7);
+            y += 10;
+        }
+        super.render(g, mx, my, d);
+    }
+
+    private static void swatch(
+            GuiGraphics g, Layer.LegendEntry entry, int x, int y, int width, int height) {
+        for (int i = 0; i < width; i++) {
+            g.fill(x + i, y, x + i + 1, y + height, 0xff000000 | entry.colourAt((i + .5) / width));
+        }
+    }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
+    @Override
+    public void onClose() {
+        if (parent instanceof AtlasScreen settings) {
+            settings.syncLayer();
+        }
+        minecraft.setScreen(parent);
+    }
+
+    record KeyPlan(
+            int width,
+            int height,
+            int header,
+            List<List<net.minecraft.util.FormattedCharSequence>> rows,
+            List<net.minecraft.util.FormattedCharSequence> note,
+            KeyLayout.Fit fit) {}
+
+    private static int naturalKeyWidth(Profile p) {
+        var font = Minecraft.getInstance().font;
+        int width = font.width(p.layerTitle() + " key") + 8;
+        for (var entry : entries(p)) {
+            width = Math.max(width, font.width(entry.label()) + 22);
+        }
+        return width;
+    }
+
+    static int defaultKeyWidth(Profile p, float scale) {
+        return (int) Math.ceil(Math.min(200, naturalKeyWidth(p)) * scale);
+    }
+
+    static KeyPlan plan(Profile p, int physicalWidth, int maximumHeight, float scale) {
+        var font = Minecraft.getInstance().font;
+        int width = Math.max(30, Math.min(naturalKeyWidth(p), (int) (physicalWidth / scale)));
+        List<List<net.minecraft.util.FormattedCharSequence>> rows = new ArrayList<>();
+        List<Integer> heights = new ArrayList<>();
+        for (var entry : entries(p)) {
+            var row = font.split(Component.literal(entry.label()), Math.max(8, width - 22));
+            rows.add(row);
+            heights.add(Math.max(11, row.size() * 10 + 1));
+        }
+        // Detailed explanations remain in the full key; the map key fits tightly around its rows.
+        int header = 15, available = (int) (maximumHeight / scale);
+        if (available < header + 14) {
+            return null;
+        }
+        int requested =
+                p.keyHeight() == 0 ? available : Math.min((int) (p.keyHeight() / scale), available);
+        int budget = Math.max(Math.min(available, header + 14), requested);
+        var fit = KeyLayout.fit(heights, header, budget - 3, 11);
+        return new KeyPlan(width, fit.height() + 3, header, List.copyOf(rows), List.of(), fit);
+    }
+
+    static void compact(GuiGraphics g, HudLayout.Box bounds, Profile p, float scale, KeyPlan plan) {
+        var font = Minecraft.getInstance().font;
+        var entries = entries(p);
+        g.pose().pushPose();
+        g.pose().translate(bounds.x(), bounds.y(), 0);
+        g.pose().scale(scale, scale, 1);
+        g.fill(0, 0, plan.width(), plan.height(), 0xBD161B1D);
+        g.drawString(
+                font,
+                font.plainSubstrByWidth(p.layerTitle() + " key", plan.width() - 8),
+                4,
+                3,
+                0xE8D9B6);
+        int line = 15;
+        for (var note : plan.note()) {
+            g.drawString(font, note, 5, line, 0xB9B5A7);
+            line += 10;
+        }
+        line = plan.header();
+        for (int i = 0; i < plan.fit().count(); i++) {
+            swatch(g, entries.get(i), 4, line, 10, 7);
+            for (var text : plan.rows().get(i)) {
+                g.drawString(font, text, 18, line, 0xDDD7C9);
+                line += 10;
+            }
+            line++;
+        }
+        if (plan.fit().hidden() > 0) {
+            g.drawString(
+                    font,
+                    font.plainSubstrByWidth("+" + plan.fit().hidden() + " more", plan.width() - 8),
+                    4,
+                    line,
+                    0xAAA99D);
+        }
+        g.pose().popPose();
+    }
+
+    private static final class ColorScreen extends AtlasMenuScreen {
+        private final Screen parent;
+        private final Layer layer;
+        private final Layer.LegendEntry entry;
+        private EditBox box;
+        private String error = "";
+
+        ColorScreen(Screen parent, Layer layer, Layer.LegendEntry entry) {
+            super(Component.literal(entry.label()));
+            this.parent = parent;
+            this.layer = layer;
+            this.entry = entry;
+        }
+
+        @Override
+        protected void init() {
+            box =
+                    new HoverEditBox(
+                            font, width / 2 - 80, 65, 160, 20, Component.literal("Hex colour"));
+            box.setValue(String.format("%06X", entry.colourAt(.5)));
+            addRenderableWidget(box);
+            addRenderableWidget(
+                    Button.builder(
+                                    Component.literal("Save colour"),
+                                    b -> {
+                                        try {
+                                            String hex = box.getValue().replace("#", "");
+                                            if (hex.length() != 6) {
+                                                throw new IllegalArgumentException();
+                                            }
+                                            int rgb = Integer.parseInt(hex, 16);
+                                            AtlasClient.profile.colors.put(
+                                                    layer.name() + ":" + entry.colourKey(), rgb);
+                                            AtlasClient.save();
+                                            AtlasClient.renderer.clear();
+                                            minecraft.setScreen(parent);
+                                        } catch (Exception e) {
+                                            error = "Enter six hexadecimal digits";
+                                        }
+                                    })
+                            .bounds(width / 2 - 80, 95, 160, 20)
+                            .build());
+            addRenderableWidget(
+                    Button.builder(
+                                    Component.literal("Restore default"),
+                                    b -> {
+                                        AtlasClient.profile.colors.remove(
+                                                layer.name() + ":" + entry.colourKey());
+                                        AtlasClient.save();
+                                        AtlasClient.renderer.clear();
+                                        minecraft.setScreen(parent);
+                                    })
+                            .bounds(width / 2 - 80, 119, 160, 20)
+                            .build());
+            addRenderableWidget(
+                    Button.builder(Component.literal("Back"), b -> minecraft.setScreen(parent))
+                            .bounds(width / 2 - 80, 143, 160, 20)
+                            .build());
+        }
+
+        @Override
+        public void render(GuiGraphics g, int x, int y, float d) {
+            renderBackground(g);
+            g.drawCenteredString(font, entry.label(), width / 2, 24, 0xffffff);
+            g.drawCenteredString(
+                    font, "RGB hex for the whole category/range", width / 2, 45, 0xCCCCCC);
+            g.drawCenteredString(font, error, width / 2, 173, 0xFF9977);
+            super.render(g, x, y, d);
+        }
+
+        @Override
+        public void onClose() {
+            minecraft.setScreen(parent);
+        }
+    }
+}

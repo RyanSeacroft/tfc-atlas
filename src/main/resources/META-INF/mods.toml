@@ -1,0 +1,34 @@
+modLoader="javafml"
+loaderVersion="${fml_version_range}"
+license="MIT"
+[[mods]]
+modId="tfcatlas"
+version="${mod_version}"
+displayName="TFC Atlas"
+authors="RYAN S"
+displayTest="IGNORE_ALL_VERSION"
+description='''See unexplored TFC terrain on Xaero's World Map and search for a place to build.'''
+[[dependencies.tfcatlas]]
+modId="forge"
+mandatory=true
+versionRange="${loader_version_range}"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.tfcatlas]]
+modId="minecraft"
+mandatory=true
+versionRange="${minecraft_version_range}"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.tfcatlas]]
+modId="tfc"
+mandatory=true
+versionRange="${tfc_version_range}"
+ordering="AFTER"
+side="CLIENT"
+[[dependencies.tfcatlas]]
+modId="xaeroworldmap"
+mandatory=true
+versionRange="${xaero_version_range}"
+ordering="AFTER"
+side="CLIENT"

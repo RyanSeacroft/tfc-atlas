@@ -1,0 +1,31 @@
+name: Publish prepared releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-prepared-releases
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['1.20.x', '1.21.x']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+      - name: Verify and publish the prepared release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATLAS_BRANCH: ${{ matrix.branch }}
+        run: python3 .github/scripts/publish_prepared.py

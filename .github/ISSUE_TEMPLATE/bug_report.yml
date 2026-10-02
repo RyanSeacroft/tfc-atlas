@@ -1,0 +1,30 @@
+name: Bug report
+description: Something in Atlas isn't working as expected.
+title: ""
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Minecraft, Forge/NeoForge, TFC, Xaero's World Map and Atlas versions.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead? Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: Include the steps, settings and whether this happens in singleplayer or multiplayer.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach latest.log or paste the relevant error here.

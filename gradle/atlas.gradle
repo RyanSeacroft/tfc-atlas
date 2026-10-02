@@ -1,0 +1,115 @@
+// Shared by the Minecraft branches. Keep loader-specific setup in build.gradle.
+version = "${minecraft_version}-${mod_version}"
+group = 'dev.ryan.tfcatlas'
+base { archivesName = archive_name }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(java_version.toInteger())
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// A release version and its supported dependencies have one source of truth.
+def modMetadata = [
+    mod_version: mod_version,
+    fml_version_range: fml_version_range,
+    loader_version_range: loader_version_range,
+    minecraft_version_range: minecraft_version_range,
+    tfc_version_range: tfc_version_range,
+    xaero_version_range: xaero_version_range
+]
+tasks.named('processResources') {
+    inputs.properties(modMetadata)
+    filesMatching(['META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
+        expand(modMetadata)
+    }
+}
+
+tasks.named('jar') {
+    from('LICENSE')
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    doFirst {
+        if (project.hasProperty('atlasSmoke')) {
+            throw new GradleException('Smoke-test classes are enabled. Build release JARs without -PatlasSmoke.')
+        }
+    }
+}
+
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+
+tasks.register('coreTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs Atlas search, cache, terrain and UI logic tests.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryan.tfcatlas.core.CoreTest'
+    enableAssertions = true
+}
+tasks.named('check') { dependsOn tasks.named('coreTest') }
+
+spotless {
+    java {
+        target 'src/**/*.java'
+        googleJavaFormat('1.28.0').aosp()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+    format('projectFiles') {
+        target '*.md', '*.gradle', '*.properties', '.editorconfig', '.gitignore',
+               '.gitattributes', 'gradle/*.gradle', '.github/workflows/*.yml',
+               'config/checkstyle/*.xml'
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+checkstyle {
+    toolVersion = '10.26.1'
+    configFile = file('config/checkstyle/checkstyle.xml')
+    maxWarnings = 0
+}
+tasks.withType(Checkstyle).configureEach {
+    reports {
+        html.required = true
+        xml.required = true
+    }
+}
+
+tasks.register('releaseZip', Zip) {
+    group = 'distribution'
+    description = 'Checks the mod and packages its source with the built JAR.'
+    includeEmptyDirs = false
+    dependsOn tasks.named('build')
+    destinationDirectory = layout.buildDirectory.dir('releases')
+    archiveFileName = "${archive_name}-${project.version}-source.zip"
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from('.') {
+        include 'src/**', 'gradle/**', 'config/**', '.github/**',
+                '*.gradle', 'gradle.properties', 'gradlew', 'gradlew.bat',
+                'README.md', 'CONTRIBUTING.md', 'LICENSE', '.gitignore',
+                '.gitattributes', '.editorconfig'
+    }
+    // Explicit files bypass the directory scanner's default Git-file exclusions.
+    from(files('.gitignore', '.gitattributes'))
+    // Forge uses SRG names in game, so ship its remapped JAR, not the dev JAR.
+    def releaseJar = plugins.hasPlugin('net.neoforged.moddev.legacyforge') ? 'reobfJar' : 'jar'
+    from(tasks.named(releaseJar)) { into 'releases' }
+}
+
+tasks.register('releaseInfo') {
+    group = 'distribution'
+    description = 'Writes release names for the draft-release workflow.'
+    def infoFile = layout.buildDirectory.file('release-info.properties')
+    outputs.file(infoFile)
+    inputs.property('modVersion', mod_version)
+    inputs.property('minecraftVersion', minecraft_version)
+    doLast {
+        def target = infoFile.get().asFile
+        target.parentFile.mkdirs()
+        target.text = "tag=v${mod_version}-mc${minecraft_version}\ntitle=TFC Atlas ${mod_version} (Minecraft ${minecraft_version})\n"
+    }
+}

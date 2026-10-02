@@ -1,0 +1,49 @@
+name: Draft release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - name: Build and check the selected version
+        run: ./gradlew --no-daemon releaseZip releaseInfo
+      - name: Read the release identity
+        id: release
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          values = dict(line.split('=', 1) for line in Path('build/release-info.properties').read_text().splitlines())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"tag={values['tag']}\ntitle={values['title']}\n")
+      - name: Create a draft for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+        run: |
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "This version already has a release or tag. Update mod_version before releasing again."
+            exit 1
+          fi
+          printf 'Add a short list of changes here before publishing.\n\nBuilt from commit %s.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/atlas-release-notes.md"
+          gh release create "$RELEASE_TAG" build/libs/*.jar build/releases/*.zip \
+            --target "$GITHUB_SHA" --title "$RELEASE_TITLE" \
+            --notes-file "$RUNNER_TEMP/atlas-release-notes.md" --draft
