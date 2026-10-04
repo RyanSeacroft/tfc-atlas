@@ -40,20 +40,15 @@ For changes to maps or UI, also try `./gradlew runClient` and check them in game
 
 Keep the existing repository for future fixes. Git records the history, and selecting a branch changes the files in your working folder automatically.
 
-## Publish the included releases
-
-The repository includes checked JARs, source ZIPs, notes and checksums for both initial 0.1.24 releases. Publish both Minecraft branches, then run **Actions → Publish prepared releases** once from the default branch. It publishes both releases with the right source tags. Existing matching downloads are kept; changed files or conflicting tags stop the affected job.
-
-That workflow uses the prepared files as they are. For later fixes, use the build-and-draft steps below after changing `mod_version`.
-
 ## Make a release
 
-1. Change `mod_version` in `gradle.properties`. The JAR name and mod metadata use it automatically.
-2. Run `./gradlew releaseZip`. This runs the checks and produces a source ZIP in `build/releases/`, with the built JAR inside it.
-3. Push the commit, then open **Actions → Draft release → Run workflow** on the right branch. It builds again and creates a **draft** GitHub release with the JAR and source ZIP.
-4. Add a short description of what changed, check the Minecraft version, then publish the draft.
+1. Change `mod_version` in `gradle.properties` on the Minecraft branch you’re updating.
+2. Run `./gradlew releaseZip`. This checks the mod and puts its source ZIP in `build/releases/`, with the built JAR inside it.
+3. Commit and push. On GitHub, open **Releases → Draft a new release**.
+4. Create a tag like `v<mod version>-mc<Minecraft version>` and select the matching Minecraft branch as its target.
+5. Add the JAR and source ZIP, write a few lines about what changed, and publish. Repeat on the other branch if it also has an update.
 
-The draft workflow uses a tag like `v<mod version>-mc<Minecraft version>`. Existing tags and releases are never overwritten.
+You can also use **Actions → Draft release** to build the downloads and prepare the draft for you. A successful Build action alone doesn’t publish a release. Keep older releases and tags so people can still download them.
 
 ## Support another Minecraft version
 
@@ -62,6 +57,6 @@ The draft workflow uses a tag like `v<mod version>-mc<Minecraft version>`. Exist
 3. Port the game-facing code in `client/` and `mixin/`. Check TFC’s world generation too: climate, rocks and sampling can change even when the code still compiles.
 4. Run `./gradlew spotlessApply build releaseZip`, then test in game. Set the new default branch when it’s ready.
 
-The build and draft-release workflows read their versions from the selected branch. The one-time prepared-release workflow lists the two included branches. `gradle/atlas.gradle` holds the shared formatting, metadata and packaging setup; `build.gradle` holds the loader-specific bits. Copy shared maintenance changes to the older branches without merging an entire port into them.
+The build and draft-release workflows read their versions from the selected branch. `gradle/atlas.gradle` holds the shared formatting, metadata and packaging setup; `build.gradle` holds the loader-specific bits. Copy shared maintenance changes to the older branches without merging an entire port into them.
 
 Updating version numbers starts a port; it can’t make incompatible Minecraft APIs work automatically.

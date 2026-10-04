@@ -75,6 +75,7 @@ public final class MapRenderer {
     private double labelX = Double.NaN, labelZ, labelZoom;
     private Layer labelLayer;
     private double labelScale;
+    private String labelMode = "";
     private List<RegionLabels.Label> regionLabels = List.of();
     private final SearchOutlines searchOutlines = new SearchOutlines();
     private SearchOverlay snapshot = SearchOverlay.EMPTY;
@@ -244,7 +245,7 @@ public final class MapRenderer {
             }
         }
         engine.prioritize(window, detailWindow, previewWindow);
-        boolean mask = p.mode.equals("Unexplored only");
+        boolean mask = p.maskedCoverage();
         notice =
                 !backgroundDetail
                         ? resolution + "-block overview"
@@ -275,7 +276,7 @@ public final class MapRenderer {
         RenderSystem.depthMask(false);
         try {
             if (mask) {
-                explored.begin(g, v, width, height);
+                explored.begin(g, v, width, height, p.mode.equals("Explored only"));
             }
             // GuiGraphics ends its stencil-fill batch by clearing the blend state.
             RenderSystem.enableBlend();
@@ -404,6 +405,36 @@ public final class MapRenderer {
         BufferUploader.drawWithShader(b.end());
     }
 
+    private long exclusionRevision = -1;
+    private dev.ryan.tfcatlas.core.TerrainCoverage.Rect exclusionBounds;
+    private List<dev.ryan.tfcatlas.core.TerrainCoverage.Rect> unknownCoverage = List.of();
+
+    private List<dev.ryan.tfcatlas.core.TerrainCoverage.Rect> labelExclusions(
+            XaeroBridge.View v, Profile p, int width, int height)
+            throws ReflectiveOperationException {
+        if (!p.maskedCoverage()) {
+            return List.of();
+        }
+        var known = explored.coverage(v, width, height);
+        if (p.mode.equals("Unexplored only")) {
+            return known;
+        }
+        var bounds =
+                new dev.ryan.tfcatlas.core.TerrainCoverage.Rect(
+                        (int) Math.floor(v.x() - v.centerX() / v.scale()),
+                        (int) Math.floor(v.z() - v.centerZ() / v.scale()),
+                        (int) Math.ceil(v.x() + (width - v.centerX()) / v.scale()),
+                        (int) Math.ceil(v.z() + (height - v.centerZ()) / v.scale()));
+        if (exclusionRevision != explored.coverageRevision() || !bounds.equals(exclusionBounds)) {
+            unknownCoverage =
+                    dev.ryan.tfcatlas.core.TerrainCoverage.complement(
+                            known, bounds.x0(), bounds.z0(), bounds.x1(), bounds.z1());
+            exclusionRevision = explored.coverageRevision();
+            exclusionBounds = bounds;
+        }
+        return unknownCoverage;
+    }
+
     private void mapLabels(
             GuiGraphics g,
             XaeroBridge.View v,
@@ -417,7 +448,7 @@ public final class MapRenderer {
         if (!MapLabels.visible(p.mapLabels, layer, v.scale(), step)) {
             return;
         }
-        var coverage = explored.coverage(v, width, height);
+        var coverage = labelExclusions(v, p, width, height);
         long coverageRevision = explored.coverageRevision();
         var font = Minecraft.getInstance().font;
         float scale = (float) p.labelScale;
@@ -426,7 +457,8 @@ public final class MapRenderer {
             if (labelLayer == layer
                     && labelZoom == v.scale()
                     && labelScale == p.labelScale
-                    && labelCoverageRevision == coverageRevision) {
+                    && labelCoverageRevision == coverageRevision
+                    && labelMode.equals(p.mode)) {
                 try {
                     regionLabels = labelFuture.join();
                 } catch (java.util.concurrent.CompletionException
@@ -436,7 +468,10 @@ public final class MapRenderer {
             }
             labelFuture = null;
         }
-        if (labelLayer != layer || labelZoom != v.scale() || labelScale != p.labelScale) {
+        if (labelLayer != layer
+                || labelZoom != v.scale()
+                || labelScale != p.labelScale
+                || !labelMode.equals(p.mode)) {
             regionLabels = List.of();
         }
         boolean changed =
@@ -448,7 +483,8 @@ public final class MapRenderer {
                         || labelLayer != layer
                         || labelRevision != e.revision()
                         || labelScale != p.labelScale
-                        || labelCoverageRevision != coverageRevision;
+                        || labelCoverageRevision != coverageRevision
+                        || !labelMode.equals(p.mode);
         if (labelFuture == null
                 && changed
                 && (now - labelTime >= 100 || labelLayer != layer || labelZoom != v.scale())) {
@@ -523,6 +559,7 @@ public final class MapRenderer {
             labelScale = p.labelScale;
             labelRevision = e.revision();
             labelCoverageRevision = coverageRevision;
+            labelMode = p.mode;
         }
         for (var label : regionLabels) {
             // Coverage can change while the worker is placing labels. Never draw a stale clipped

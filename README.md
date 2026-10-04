@@ -4,14 +4,17 @@ A map addon for **TerraFirmaCraft** and **Xaero’s World Map**. See what’s be
 
 - View rocks, biomes, rainfall, temperature and terrain.
 - Search for several things at once, including rock layers and ground height.
-- Keep explored terrain visible, with search results highlighted on top.
+- Show layers everywhere, only on explored terrain, or only beyond it. Your Xaero map stays untouched.
+- Switch between TFC layers and Xaero’s surface or cave view.
 - Move and resize the map panels to suit your screen.
 
 ## Give it a go
 
 Grab the JAR for your Minecraft version and loader from [Releases](https://github.com/RyanSeacroft/tfc-atlas/releases), then put it in your `mods` folder alongside TFC and Xaero’s World Map. Install it on your client; the server doesn’t need it.
 
-Open the world map and press **G** for settings. Leave search fields blank if you don’t care about them.
+Open the world map and press **G** for settings. Leave search fields blank if you don’t care about them. The toolbar’s view button switches maps; the coverage button chooses where TFC colours appear.
+
+On Minecraft versions with soil fertility, the soil layer shows likely soil regions and their nutrient bonuses. Use it to scout farmland, then check the soil on the ground.
 
 The map is a prediction, so custom world generation can affect its accuracy. Finding the right rock doesn’t guarantee ore.
 

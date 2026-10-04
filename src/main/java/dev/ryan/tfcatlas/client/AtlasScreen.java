@@ -45,9 +45,10 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "mode",
                     "Map overlay",
-                    "Same cycle as the map toolbar: Full map, Unexplored only, Off. Search highlights remain visible over explored terrain.",
+                    "Full map, Unexplored only, Explored only, or Off. Layers never change Xaero’s saved map. Search highlights remain visible over explored terrain.",
                     "Full map",
                     "Unexplored only",
+                    "Explored only",
                     "Off"),
             o(
                     "useLocalSettings",
@@ -847,6 +848,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         : minecraft.player.blockPosition();
         int x = p.searchOrigin.equals("Coordinates") ? p.searchX : origin.getX(),
                 z = p.searchOrigin.equals("Coordinates") ? p.searchZ : origin.getZ();
+        XaeroViews.restore();
         p.showSearchLayer();
         values.put("layer", p.layer);
         AtlasClient.save();
