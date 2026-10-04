@@ -226,7 +226,8 @@ public final class DisplayTest {
                 "Previous defaults and labels migrate");
         check(
                 old.seed.equals("-42")
-                        && old.mode.equals("Unexplored only")
+                        && old.mode.equals("Full map")
+                        && old.display.equals("Xaero Map")
                         && old.colors.get("ROCKS:Granite") == 123
                         && old.savedSearches.get("test").equals("preset"),
                 "Migration preserves the world, coverage, colours and searches");

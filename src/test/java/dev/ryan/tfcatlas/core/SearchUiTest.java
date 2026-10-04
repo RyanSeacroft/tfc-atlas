@@ -313,18 +313,11 @@ public final class SearchUiTest {
         var restoredHeight = Profiles.decode(Profiles.JSON.toJsonTree(yProfile).getAsJsonObject());
         check(restoredHeight.minY == 100 && restoredHeight.maxY == 130, "New Y bounds persist");
         Profile mode = new Profile();
-        for (String expected :
-                List.of(
-                        "Explored only",
-                        "Off",
-                        "Full map",
-                        "Unexplored only",
-                        "Explored only",
-                        "Off")) {
+        for (String expected : List.of("Explored only", "Full map", "Explored only")) {
             mode.cycleCoverage();
             check(
-                    mode.mode.equals(expected) && mode.overlayVisible() != expected.equals("Off"),
-                    "One coverage cycle controls visibility and mode");
+                    mode.mode.equals(expected) && mode.overlayVisible(),
+                    "Coverage cycles independently of visibility");
             check(
                     Profiles.decode(Profiles.JSON.toJsonTree(mode).getAsJsonObject())
                             .mode
@@ -336,13 +329,14 @@ public final class SearchUiTest {
                         JsonParser.parseString("{\"enabled\":false,\"mode\":\"Full map\"}")
                                 .getAsJsonObject());
         check(
-                mode.mode.equals("Off")
+                mode.mode.equals("Full map")
+                        && !mode.atlasEnabled
                         && !Profiles.JSON.toJsonTree(mode).getAsJsonObject().has("enabled"),
-                "Legacy disabled state migrates to the single Off state");
-        mode.cycleCoverage();
+                "Legacy disabled state migrates to the Atlas switch");
+        mode.atlasEnabled = true;
         check(
                 Profiles.decode(Profiles.JSON.toJsonTree(mode).getAsJsonObject()).overlayVisible(),
-                "Legacy disable cannot override a later Full map selection");
+                "The Atlas switch persists independently");
         for (int height : new int[] {100, 200, 600}) {
             var fit = KeyLayout.fit(List.of(11, 11, 11), 15, height, 11);
             check(

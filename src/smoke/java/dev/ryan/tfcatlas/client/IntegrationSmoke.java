@@ -260,7 +260,8 @@ public final class IntegrationSmoke {
                 ticks = 0;
             } else if (phase == 4 && ++ticks > 60) {
                 screenshot("02-map-rainfall");
-                AtlasClient.profile.mode = "Unexplored only";
+                AtlasClient.profile.mode = "Full map";
+                AtlasClient.profile.display = "Xaero Map";
                 phase = 5;
                 ticks = 0;
             } else if (phase == 5 && ++ticks > 100) {

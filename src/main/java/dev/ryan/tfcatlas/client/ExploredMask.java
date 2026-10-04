@@ -187,18 +187,17 @@ public final class ExploredMask {
                 minZ = (int) Math.floor(view.z() - height / (2 * view.scale()));
         int maxX = (int) Math.ceil(view.x() + width / (2 * view.scale())),
                 maxZ = (int) Math.ceil(view.z() + height / (2 * view.scale()));
-        List<Rect> rects = collect(view.processor(), level, minX, minZ, maxX, maxZ);
-        if (!view.surface()) {
-            rects.addAll(
-                    collect(
-                            view.processor(),
-                            ((Number) call(view.processor(), "getCurrentCaveLayer")).intValue(),
-                            level,
-                            minX,
-                            minZ,
-                            maxX,
-                            maxZ));
-        }
+        // Match the actual native imagery, including the selected cave layer. A surface
+        // discovery does not imply that Xaero has imagery at this cave depth.
+        List<Rect> rects =
+                collect(
+                        view.processor(),
+                        ((Number) call(view.processor(), "getCurrentCaveLayer")).intValue(),
+                        level,
+                        minX,
+                        minZ,
+                        maxX,
+                        maxZ);
         if (!rects.equals(currentCoverage)) {
             currentCoverage = List.copyOf(rects);
             coverageRevision++;
@@ -265,6 +264,15 @@ public final class ExploredMask {
         GL11.glStencilMask(0);
         GL11.glStencilFunc(GL11.GL_EQUAL, exploredOnly ? 0x80 : 0, 0x80);
         GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_KEEP);
+    }
+
+    /** Reuse this frame's mask for disjoint colour passes and visible labels. */
+    public void select(GuiGraphics g, Boolean known) {
+        g.flush();
+        GL11.glStencilFunc(
+                known == null ? GL11.GL_ALWAYS : GL11.GL_EQUAL,
+                Boolean.TRUE.equals(known) ? 0x80 : 0,
+                0x80);
     }
 
     public void end(GuiGraphics g) {

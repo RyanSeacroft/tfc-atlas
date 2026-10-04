@@ -276,38 +276,60 @@ public final class MapRenderer {
         RenderSystem.depthMask(false);
         try {
             if (mask) {
-                explored.begin(g, v, width, height, p.mode.equals("Explored only"));
+                explored.begin(g, v, width, height, false);
             }
             // GuiGraphics ends its stencil-fill batch by clearing the blend state.
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(false);
-            RenderSystem.setShaderColor(1, 1, 1, (float) p.opacity);
-            if (step >= 32 / Tile.GRID) {
-                // Wide views need one draw per packed page, rather than thousands of tile draws.
-                for (var page : pages.visible(window, p.selected())) {
-                    drawPage(g, v, page, page.blockX(), page.blockZ(), page.span());
+            for (int pass = 0; pass < (mask ? 2 : 1); pass++) {
+                float alpha =
+                        mask
+                                ? (pass == 0 ? p.unexploredOpacity() : p.exploredOpacity())
+                                : p.unexploredOpacity();
+                if (alpha == 0) {
+                    continue;
                 }
-            } else {
-                for (Tile.Key key : window) {
-                    MapPages.Page page = pages.get(key, p.selected());
-                    if (page == null || !page.shown(key)) {
-                        for (int parentStep = step * 2;
-                                parentStep <= Sampling.MAX_MAP_STEP;
-                                parentStep *= 2) {
-                            Tile.Key parent = Tile.Key.at(key.blockX(), key.blockZ(), parentStep);
-                            page = pages.get(parent, p.selected());
-                            if (page != null && page.shown(parent)) {
-                                break;
+                if (mask) {
+                    explored.select(g, pass == 1);
+                }
+                RenderSystem.setShaderColor(1, 1, 1, alpha);
+                if (step >= 32 / Tile.GRID) {
+                    // Wide views need one draw per packed page, rather than thousands of tile
+                    // draws.
+                    for (var page : pages.visible(window, p.selected())) {
+                        drawPage(g, v, page, page.blockX(), page.blockZ(), page.span());
+                    }
+                } else {
+                    for (Tile.Key key : window) {
+                        MapPages.Page page = pages.get(key, p.selected());
+                        if (page == null || !page.shown(key)) {
+                            for (int parentStep = step * 2;
+                                    parentStep <= Sampling.MAX_MAP_STEP;
+                                    parentStep *= 2) {
+                                Tile.Key parent =
+                                        Tile.Key.at(key.blockX(), key.blockZ(), parentStep);
+                                page = pages.get(parent, p.selected());
+                                if (page != null && page.shown(parent)) {
+                                    break;
+                                }
+                                page = null;
                             }
-                            page = null;
+                        }
+                        if (page != null) {
+                            drawPage(g, v, page, key.blockX(), key.blockZ(), key.span());
                         }
                     }
-                    if (page != null) {
-                        drawPage(g, v, page, key.blockX(), key.blockZ(), key.span());
-                    }
                 }
+                g.flush();
+            }
+            if (mask) {
+                explored.select(
+                        g,
+                        p.exploredOpacity() == 0
+                                ? Boolean.FALSE
+                                : p.unexploredOpacity() == 0 ? Boolean.TRUE : null);
             }
             RenderSystem.setShaderColor(1, 1, 1, 1);
             SearchOverlay search = engine.searchOverlay;
@@ -412,11 +434,11 @@ public final class MapRenderer {
     private List<dev.ryan.tfcatlas.core.TerrainCoverage.Rect> labelExclusions(
             XaeroBridge.View v, Profile p, int width, int height)
             throws ReflectiveOperationException {
-        if (!p.maskedCoverage()) {
+        if (p.exploredOpacity() > 0 && p.unexploredOpacity() > 0) {
             return List.of();
         }
         var known = explored.coverage(v, width, height);
-        if (p.mode.equals("Unexplored only")) {
+        if (p.exploredOpacity() == 0) {
             return known;
         }
         var bounds =
@@ -458,7 +480,7 @@ public final class MapRenderer {
                     && labelZoom == v.scale()
                     && labelScale == p.labelScale
                     && labelCoverageRevision == coverageRevision
-                    && labelMode.equals(p.mode)) {
+                    && labelMode.equals(p.mode + ":" + p.effectiveDisplay())) {
                 try {
                     regionLabels = labelFuture.join();
                 } catch (java.util.concurrent.CompletionException
@@ -471,7 +493,7 @@ public final class MapRenderer {
         if (labelLayer != layer
                 || labelZoom != v.scale()
                 || labelScale != p.labelScale
-                || !labelMode.equals(p.mode)) {
+                || !labelMode.equals(p.mode + ":" + p.effectiveDisplay())) {
             regionLabels = List.of();
         }
         boolean changed =
@@ -484,7 +506,7 @@ public final class MapRenderer {
                         || labelRevision != e.revision()
                         || labelScale != p.labelScale
                         || labelCoverageRevision != coverageRevision
-                        || !labelMode.equals(p.mode);
+                        || !labelMode.equals(p.mode + ":" + p.effectiveDisplay());
         if (labelFuture == null
                 && changed
                 && (now - labelTime >= 100 || labelLayer != layer || labelZoom != v.scale())) {
@@ -559,7 +581,7 @@ public final class MapRenderer {
             labelScale = p.labelScale;
             labelRevision = e.revision();
             labelCoverageRevision = coverageRevision;
-            labelMode = p.mode;
+            labelMode = p.mode + ":" + p.effectiveDisplay();
         }
         for (var label : regionLabels) {
             // Coverage can change while the worker is placing labels. Never draw a stale clipped

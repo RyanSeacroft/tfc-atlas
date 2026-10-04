@@ -13,15 +13,17 @@ import java.util.Set;
 import java.util.TreeMap;
 
 public class Profile {
-    public String seed = "", layer = "ROCKS", mode = "Unexplored only";
+    public String seed = "", layer = "ROCKS", mode = "Full map";
     public boolean legend = true,
             hover = true,
             spawn = false,
             highlights = true,
             labels = false,
             accessible = false,
-            diskCache = true;
-    public double opacity = .65, highlightOpacity = .55, labelScale = .5;
+            diskCache = true,
+            atlasEnabled = true;
+    public String display = "Xaero Map";
+    public double opacity = .5, highlightOpacity = .55, labelScale = .5;
     // Negative positions and zero key dimensions use automatic placement and full-list sizing.
     public double toolbarScale = .5, keyScale = .5, infoScale = .5, criteriaScale = .5;
     public int criteriaX = -1, criteriaY = -1;
@@ -31,7 +33,7 @@ public class Profile {
     public boolean climateContinents = true;
     public Map<String, int[]> keySizes = new HashMap<>();
     public Map<String, Double> keyScales = new HashMap<>();
-    public int uiRevision = 6, searchRevision = 2, coverageRevision = 1;
+    public int uiRevision = 6, searchRevision = 2, coverageRevision = 2;
     public int highlightColor = 0xFFFF55,
             outline = 1,
             labelSpacing = 100,
@@ -103,22 +105,67 @@ public class Profile {
     public Map<String, Integer> colors = new HashMap<>();
     public Map<String, String> savedSearches = new TreeMap<>();
 
+    public static java.util.List<String> displays(String coverage) {
+        return switch (coverage) {
+            case "Full map" -> java.util.List.of("Xaero Map", "TFC Layers Only", "Overlay");
+            case "Explored only" -> java.util.List.of("TFC Layers Only", "Overlay");
+            default -> java.util.List.of();
+        };
+    }
+
+    public String coverageLabel() {
+        return mode.replace(" map", " Map").replace(" only", " Only");
+    }
+
+    public boolean displayEnabled() {
+        return !displays(mode).isEmpty();
+    }
+
+    public String effectiveDisplay() {
+        return displays(mode).contains(display)
+                ? display
+                : mode.equals("Full map") ? "Xaero Map" : "TFC Layers Only";
+    }
+
+    public void cycleDisplay() {
+        var choices = displays(mode);
+        if (!choices.isEmpty()) {
+            display = choices.get((choices.indexOf(effectiveDisplay()) + 1) % choices.size());
+        }
+    }
+
+    public float exploredOpacity() {
+        if (!atlasEnabled) {
+            return 0;
+        }
+        return switch (effectiveDisplay()) {
+            case "Xaero Map" -> 0;
+            case "Overlay" -> (float) opacity;
+            default -> 1;
+        };
+    }
+
+    public float unexploredOpacity() {
+        return atlasEnabled && mode.equals("Full map") ? 1 : 0;
+    }
+
     public boolean maskedCoverage() {
-        return mode.equals("Unexplored only") || mode.equals("Explored only");
+        return exploredOpacity() != unexploredOpacity();
     }
 
     public boolean overlayVisible() {
-        return !mode.equals("Off");
+        return atlasEnabled;
     }
 
     public void cycleCoverage() {
         mode =
                 switch (mode) {
-                    case "Full map" -> "Unexplored only";
-                    case "Unexplored only" -> "Explored only";
-                    case "Explored only" -> "Off";
+                    case "Full map" -> "Explored only";
                     default -> "Full map";
                 };
+        if (!displays(mode).contains(display)) {
+            display = displays(mode).get(0);
+        }
     }
 
     public Layer selected() {
@@ -251,9 +298,8 @@ public class Profile {
             savedSearches = new TreeMap<>();
         }
         Layer.migrateColourRanges(colors);
-        if (!Set.of("Full map", "Unexplored only", "Explored only", "Off")
-                .contains(mode == null ? "" : mode)) {
-            mode = "Unexplored only";
+        if (!Set.of("Full map", "Explored only").contains(mode == null ? "" : mode)) {
+            mode = "Full map";
         }
         if (Set.of("Biomes", "Rocks", "Both").contains(mapLabels == null ? "" : mapLabels)) {
             mapLabels = "Active layer";
@@ -286,7 +332,19 @@ public class Profile {
         keyScale = panelScale(keyScale);
         infoScale = panelScale(infoScale);
         criteriaScale = panelScale(criteriaScale);
-        opacity = Double.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : .65;
+        if ("Xaero Map Only".equals(display)) {
+            display = "Xaero Map";
+        }
+        if (!java.util.List.of("TFC Layers Only", "Xaero Map", "Overlay")
+                .contains(display == null ? "" : display)) {
+            display = mode.equals("Full map") ? "Xaero Map" : "TFC Layers Only";
+        }
+        if (!displays(mode).contains(display)) {
+            display = displays(mode).get(0);
+        }
+        if (opacity != .25 && opacity != .5 && opacity != .75) {
+            opacity = .5;
+        }
         highlightOpacity =
                 Double.isFinite(highlightOpacity)
                         ? Math.max(0, Math.min(1, highlightOpacity))

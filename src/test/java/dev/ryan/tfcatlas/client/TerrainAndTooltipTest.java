@@ -97,6 +97,20 @@ public final class TerrainAndTooltipTest {
         final CoverageTest.Region surface = new CoverageTest.Region(),
                 cave = new CoverageTest.Region();
 
+        public int currentLayer = Integer.MAX_VALUE;
+
+        public static final class SaveLoad {
+            public int mainTextureLevel = 0;
+        }
+
+        public SaveLoad getMapSaveLoad() {
+            return new SaveLoad();
+        }
+
+        public int getCurrentCaveLayer() {
+            return currentLayer;
+        }
+
         public CoverageTest.Region getLeveledRegion(int layer, int x, int z, int level) {
             return x == 0 && z == 0
                     ? (layer == Integer.MAX_VALUE ? surface : layer == -16 ? cave : null)
@@ -119,11 +133,16 @@ public final class TerrainAndTooltipTest {
                 surface.equals(List.of(new TerrainCoverage.Rect(0, 0, 16, 16)))
                         && underground.equals(List.of(new TerrainCoverage.Rect(32, 16, 48, 32))),
                 "Cave coverage comes from the selected cave layer, independently of saved surface exploration");
-        List<TerrainCoverage.Rect> both = new ArrayList<>(surface);
-        both.addAll(underground);
+        var view = new XaeroBridge.View(32, 32, 1, "test", true, true, p, 32, 32);
         check(
-                both.size() == 2,
-                "Underground unexplored masking can protect both explored surface and cave tiles");
+                mask.coverage(view, 64, 64).equals(surface),
+                "Surface imagery uses surface discoveries");
+        long revision = mask.coverageRevision();
+        p.currentLayer = -16;
+        check(
+                mask.coverage(view, 64, 64).equals(underground),
+                "Changing native cave layer changes the rendering mask, without surface leakage");
+        check(mask.coverageRevision() > revision, "Native view changes invalidate label coverage");
     }
 
     private static void dikes() throws Exception {
