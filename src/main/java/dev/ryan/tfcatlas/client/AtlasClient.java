@@ -157,6 +157,7 @@ public final class AtlasClient {
     }
 
     private static void close() {
+        XaeroViews.restore();
         hud.reset();
         if (engine != null) {
             engine.close();
@@ -188,6 +189,9 @@ public final class AtlasClient {
             return;
         }
         boolean mapOpen = XaeroBridge.isMap(mc.screen);
+        if (mc.screen == null || mc.level == null) {
+            XaeroViews.restore();
+        }
         if (mc.player != null
                 && mc.level != null
                 && mc.level.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)
@@ -233,7 +237,7 @@ public final class AtlasClient {
             message("Xaero integration: " + ex.getMessage());
             return;
         }
-        if (profile.mode.equals("Unexplored only")) {
+        if (profile.maskedCoverage()) {
             try {
                 ExploredMask.prepare();
             } catch (RuntimeException ex) {
@@ -250,6 +254,7 @@ public final class AtlasClient {
             "Rock: " + profile.rockLayer,
             "Key",
             profile.mode,
+            XaeroViews.selected(),
             "Resize / Move UI"
         };
         Button.OnPress[] actions = {
@@ -260,6 +265,7 @@ public final class AtlasClient {
                 save();
             },
             b -> {
+                XaeroViews.restore();
                 Layer[] layers = Layer.values();
                 profile.layer = layers[(profile.selected().ordinal() + 1) % layers.length].name();
                 save();
@@ -270,6 +276,7 @@ public final class AtlasClient {
             },
             b -> Minecraft.getInstance().setScreen(new LegendScreen(map)),
             b -> cycleCoverage(),
+            b -> XaeroViews.cycle(map),
             b -> hud.toggle()
         };
         for (int i = 0; i < names.length; i++) {
@@ -285,7 +292,7 @@ public final class AtlasClient {
 
     private static void cycleCoverage() {
         profile.cycleCoverage();
-        if (profile.mode.equals("Unexplored only")) {
+        if (profile.maskedCoverage()) {
             try {
                 ExploredMask.prepare();
             } catch (RuntimeException ex) {
@@ -298,7 +305,7 @@ public final class AtlasClient {
     private static void layoutToolbar(Screen screen, boolean show) {
         hud.hide(HudEditor.Panel.TOOLBAR);
         hud.toolbarGrip(null);
-        if (toolbar.size() != 8) {
+        if (toolbar.size() != 9) {
             return;
         }
         toolbar.get(2)
@@ -307,7 +314,8 @@ public final class AtlasClient {
                                 profile.searchCircle ? "Search radius ✓" : "Search radius"));
         toolbar.get(4).setMessage(Component.literal("Rock: " + profile.rockLayer));
         toolbar.get(6).setMessage(Component.literal(profile.mode));
-        toolbar.get(7).setMessage(Component.literal(hud.editing ? "Done" : "Resize / Move UI"));
+        toolbar.get(7).setMessage(Component.literal(XaeroViews.selected()));
+        toolbar.get(8).setMessage(Component.literal(hud.editing ? "Done" : "Resize / Move UI"));
         HudLayout.Box safe = HudLayout.safeArea(screen.width, screen.height);
         int[] textWidths = new int[toolbar.size()];
         var font = Minecraft.getInstance().font;
@@ -399,7 +407,10 @@ public final class AtlasClient {
         lastHook = System.currentTimeMillis();
         try {
             ensure(s);
-            if (!view.overworld() || engine == null || (!profile.overlayVisible() && !held)) {
+            if (!XaeroViews.layers()
+                    || !view.overworld()
+                    || engine == null
+                    || (!profile.overlayVisible() && !held)) {
                 return;
             }
             if (!(view.scale() > 0) || !Double.isFinite(view.scale())) {
@@ -458,6 +469,8 @@ public final class AtlasClient {
             lines.add("TFC Atlas: Overworld only");
         } else if (System.currentTimeMillis() - lastHook > 2500) {
             lines.add("TFC Atlas: overlay hook unavailable for this Xaero version");
+        } else if (!XaeroViews.layers()) {
+            lines.add(XaeroViews.selected() + " · use the view button for TFC layers");
         } else if (engine != null && (profile.overlayVisible() || held)) {
             lines.add(
                     profile.layerTitle()
@@ -467,13 +480,19 @@ public final class AtlasClient {
                                     ? " · " + engine.pendingCount() + " loading"
                                     : ""));
             if (view != null && !view.surface()) {
-                lines.add("Atlas predictions · Xaero cave map above · rocks use selected stratum");
+                lines.add("Surface predictions · rocks use selected stratum");
             }
             if (profile.hover) {
                 Cell c = engine.cell(hoverX, hoverZ);
                 lines.add("X " + hoverX + "  Z " + hoverZ + " · " + renderer.notice);
                 if (c != null) {
                     lines.add("Climate zone: " + ClimateZones.label(c.climateZone()));
+                    if (profile.selected() == Layer.SOIL) {
+                        lines.add("Likely soil: " + c.soil().label);
+                        if (!c.soil().fertility().isEmpty()) {
+                            lines.add(c.soil().fertility());
+                        }
+                    }
                     if (profile.selected().climate() && profile.selected() != Layer.CLIMATE_ZONES) {
                         lines.add(profile.selected().value(c));
                     }
@@ -518,7 +537,8 @@ public final class AtlasClient {
             }
         }
         boolean keyVisible =
-                profile.legend
+                XaeroViews.layers()
+                        && profile.legend
                         && engine != null
                         && (profile.overlayVisible() || held)
                         && view != null

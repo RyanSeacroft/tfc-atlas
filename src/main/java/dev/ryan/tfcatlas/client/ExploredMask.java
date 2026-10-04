@@ -206,7 +206,8 @@ public final class ExploredMask {
         return currentCoverage;
     }
 
-    public void begin(GuiGraphics g, XaeroBridge.View view, int width, int height)
+    public void begin(
+            GuiGraphics g, XaeroBridge.View view, int width, int height, boolean exploredOnly)
             throws ReflectiveOperationException {
         if (!Minecraft.getInstance().getMainRenderTarget().isStencilEnabled()) {
             throw new IllegalStateException("Terrain stencil unavailable; reopen the map");
@@ -262,7 +263,7 @@ public final class ExploredMask {
             RenderSystem.depthMask(true);
         }
         GL11.glStencilMask(0);
-        GL11.glStencilFunc(GL11.GL_EQUAL, 0, 0x80);
+        GL11.glStencilFunc(GL11.GL_EQUAL, exploredOnly ? 0x80 : 0, 0x80);
         GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_KEEP);
     }
 

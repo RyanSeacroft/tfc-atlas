@@ -313,7 +313,14 @@ public final class SearchUiTest {
         var restoredHeight = Profiles.decode(Profiles.JSON.toJsonTree(yProfile).getAsJsonObject());
         check(restoredHeight.minY == 100 && restoredHeight.maxY == 130, "New Y bounds persist");
         Profile mode = new Profile();
-        for (String expected : List.of("Off", "Full map", "Unexplored only", "Off")) {
+        for (String expected :
+                List.of(
+                        "Explored only",
+                        "Off",
+                        "Full map",
+                        "Unexplored only",
+                        "Explored only",
+                        "Off")) {
             mode.cycleCoverage();
             check(
                     mode.mode.equals(expected) && mode.overlayVisible() != expected.equals("Off"),

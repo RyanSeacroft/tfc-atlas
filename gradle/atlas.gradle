@@ -93,8 +93,6 @@ tasks.register('releaseZip', Zip) {
                 'README.md', 'CONTRIBUTING.md', 'LICENSE', '.gitignore',
                 '.gitattributes', '.editorconfig'
     }
-    // Explicit files bypass the directory scanner's default Git-file exclusions.
-    from(files('.gitignore', '.gitattributes'))
     // Forge uses SRG names in game, so ship its remapped JAR, not the dev JAR.
     def releaseJar = plugins.hasPlugin('net.neoforged.moddev.legacyforge') ? 'reobfJar' : 'jar'
     from(tasks.named(releaseJar)) { into 'releases' }

@@ -117,6 +117,10 @@ public class Profile {
     public Map<String, Integer> colors = new HashMap<>();
     public Map<String, String> savedSearches = new TreeMap<>();
 
+    public boolean maskedCoverage() {
+        return mode.equals("Unexplored only") || mode.equals("Explored only");
+    }
+
     public boolean overlayVisible() {
         return !mode.equals("Off");
     }
@@ -125,7 +129,8 @@ public class Profile {
         mode =
                 switch (mode) {
                     case "Full map" -> "Unexplored only";
-                    case "Unexplored only" -> "Off";
+                    case "Unexplored only" -> "Explored only";
+                    case "Explored only" -> "Off";
                     default -> "Full map";
                 };
     }
@@ -267,7 +272,8 @@ public class Profile {
             savedSearches = new TreeMap<>();
         }
         Layer.migrateColourRanges(colors);
-        if (!Set.of("Full map", "Unexplored only", "Off").contains(mode == null ? "" : mode)) {
+        if (!Set.of("Full map", "Unexplored only", "Explored only", "Off")
+                .contains(mode == null ? "" : mode)) {
             mode = "Unexplored only";
         }
         if (Set.of("Biomes", "Rocks", "Both").contains(mapLabels == null ? "" : mapLabels)) {

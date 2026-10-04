@@ -25,6 +25,9 @@ public final class CoreTest {
     public static void main(String[] args) throws Exception {
         dev.ryan.tfcatlas.client.SearchPerformanceTest.run();
         SeedRecoveryTest.run();
+        ExploredViewTest.run();
+        SoilTest.run();
+        dev.ryan.tfcatlas.client.SoilSamplerTest.run();
         Climate121Test.run();
         dev.ryan.tfcatlas.client.ClimateUiFixTest.run();
         dev.ryan.tfcatlas.client.QuickFixTest.run();

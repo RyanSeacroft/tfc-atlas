@@ -11,4 +11,8 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
+// Keep Git's project files in the downloadable source archive.
+org.apache.tools.ant.DirectoryScanner.removeDefaultExclude('**/.gitignore')
+org.apache.tools.ant.DirectoryScanner.removeDefaultExclude('**/.gitattributes')
+
 rootProject.name = 'tfc-atlas'

@@ -46,9 +46,10 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "mode",
                     "Map overlay",
-                    "Same cycle as the map toolbar: Full map, Unexplored only, Off. Search highlights remain visible over explored terrain.",
+                    "Full map, Unexplored only, Explored only, or Off. Layers never change Xaero’s saved map. Search highlights remain visible over explored terrain.",
                     "Full map",
                     "Unexplored only",
+                    "Explored only",
                     "Off"),
             o(
                     "useLocalSettings",
@@ -168,14 +169,14 @@ public final class AtlasScreen extends AtlasMenuScreen {
         {
             o(
                     "climateContinents",
-                    "Continents on climate / rocks",
-                    "Rainfall, Temperature and Rocks keep their data colours on land and use a dark ocean fill to show continent shapes. Off restores data colours over oceans too. Hover values and searches are unchanged.",
+                    "Continent outlines",
+                    "Climate, rocks and soils keep their data colours on land and use a dark ocean fill to show continent shapes. Off restores data colours over oceans too. Hover values and searches are unchanged.",
                     "true",
                     "false"),
             o(
                     "mapLabels",
                     "Map labels",
-                    "Rock names on Rocks; biome names on Biomes; climate names on Climate zones. One name is centred inside each connected visible region; small patches wait until there is room.",
+                    "Rock names on Rocks; biome names on Biomes; climate names on Climate zones; soil names on Soil regions. One name is centred inside each connected visible region; small patches wait until there is room.",
                     "Off",
                     "Active layer"),
             o("opacity", "Overlay opacity (0–1)", "0 is transparent; 1 is solid."),
@@ -871,6 +872,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         : minecraft.player.blockPosition();
         int x = p.searchOrigin.equals("Coordinates") ? p.searchX : origin.getX(),
                 z = p.searchOrigin.equals("Coordinates") ? p.searchZ : origin.getZ();
+        XaeroViews.restore();
         p.showSearchLayer();
         values.put("layer", p.layer);
         AtlasClient.save();

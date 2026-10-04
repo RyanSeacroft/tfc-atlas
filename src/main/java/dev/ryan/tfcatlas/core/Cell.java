@@ -15,7 +15,60 @@ public record Cell(
         String bottomRock,
         float rainVariance,
         float baseGroundwater,
-        String climateZone) {
+        String climateZone,
+        Soil soil) {
+    public Cell(
+            String rock,
+            String biome,
+            int rockType,
+            float rain,
+            float temperature,
+            int altitude,
+            int inland,
+            int oceanDistance,
+            int flags,
+            String middleRock,
+            String bottomRock,
+            float rainVariance,
+            float baseGroundwater,
+            String climateZone) {
+        this(
+                rock,
+                biome,
+                rockType,
+                rain,
+                temperature,
+                altitude,
+                inland,
+                oceanDistance,
+                flags,
+                middleRock,
+                bottomRock,
+                rainVariance,
+                baseGroundwater,
+                climateZone,
+                Soil.UNKNOWN);
+    }
+
+    public Cell withSoil(Soil value) {
+        return new Cell(
+                rock,
+                biome,
+                rockType,
+                rain,
+                temperature,
+                altitude,
+                inland,
+                oceanDistance,
+                flags,
+                middleRock,
+                bottomRock,
+                rainVariance,
+                baseGroundwater,
+                climateZone,
+                value);
+    }
+
     public Cell(
             String rock,
             String biome,
@@ -72,7 +125,8 @@ public record Cell(
                 bottomRock,
                 variance,
                 water,
-                zone);
+                zone,
+                soil);
     }
 
     public Cell(
@@ -122,7 +176,8 @@ public record Cell(
                 bottomRock,
                 rainVariance,
                 baseGroundwater,
-                climateZone);
+                climateZone,
+                soil);
     }
 
     public boolean land() {

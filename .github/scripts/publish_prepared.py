@@ -46,7 +46,8 @@ def verify_files():
         tracked = git("ls-files", "-z").split("\0")
         project_files = {name for name in tracked if name and not name.startswith("releases/")}
         expected_names = project_files | {"releases/" + manifest["jar"]}
-        if set(archive.namelist()) != expected_names:
+        archive_files = {entry.filename for entry in archive.infolist() if not entry.is_dir()}
+        if archive_files != expected_names:
             raise RuntimeError("The source ZIP does not contain the complete project.")
         for name in project_files:
             if archive.read(name) != Path(name).read_bytes():

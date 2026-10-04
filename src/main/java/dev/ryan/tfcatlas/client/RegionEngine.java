@@ -341,7 +341,7 @@ public final class RegionEngine implements AutoCloseable {
                                                         + ":"
                                                         + version
                                                         + ":"
-                                                        + Tile.FORMAT
+                                                        + Tile.CACHE_GENERATION
                                                         + ":complete-regions:"
                                                         + serialized));
         memoryTiles = p.memoryTiles;
@@ -602,6 +602,21 @@ public final class RegionEngine implements AutoCloseable {
         if (disk && Files.isRegularFile(path)) {
             try {
                 tile = Tile.read(path, key);
+                if (tile.cells()[0].soil() == dev.ryan.tfcatlas.core.Soil.UNKNOWN) {
+                    // Upgrade the climate/soil fields without regenerating existing terrain tiles.
+                    for (int i = 0; i < tile.cells().length; i++) {
+                        if (obsolete.getAsBoolean() || closed) {
+                            throw new ObsoleteTile();
+                        }
+                        int spacing = Tile.GRID * key.step();
+                        tile.cells()[i] =
+                                fine.climate(
+                                        tile.cells()[i],
+                                        key.blockX() + (i % Tile.SIDE) * spacing + spacing / 2,
+                                        key.blockZ() + (i / Tile.SIDE) * spacing + spacing / 2);
+                    }
+                    tile.write(path);
+                }
                 diskReads.incrementAndGet();
             } catch (IOException ignored) {
             }

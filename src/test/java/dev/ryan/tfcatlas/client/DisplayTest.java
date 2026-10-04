@@ -43,7 +43,10 @@ public final class DisplayTest {
         Cell sample = cell(150, 15, 8, 10, 1);
         for (Layer layer : Layer.values()) {
             boolean eligible =
-                    layer == Layer.ROCKS || layer == Layer.BIOMES || layer == Layer.CLIMATE_ZONES;
+                    layer == Layer.ROCKS
+                            || layer == Layer.BIOMES
+                            || layer == Layer.CLIMATE_ZONES
+                            || layer == Layer.SOIL;
             check(
                     MapLabels.visible("Active layer", layer, .5, 1) == eligible,
                     "Names follow the selected layer: " + layer);

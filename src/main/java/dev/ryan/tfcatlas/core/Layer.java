@@ -21,7 +21,8 @@ public enum Layer {
     RAIN_VARIANCE("Rainfall seasonality"),
     JANUARY_RAIN("January rainfall"),
     JULY_RAIN("July rainfall"),
-    GROUNDWATER("Groundwater potential");
+    GROUNDWATER("Groundwater potential"),
+    SOIL("Soil regions (approx.)");
     public final String label;
 
     Layer(String s) {
@@ -41,6 +42,7 @@ public enum Layer {
 
     public String value(Cell c) {
         return switch (this) {
+            case SOIL -> c.soil().label;
             case CLIMATE_ZONES -> ClimateZones.label(c.climateZone());
             case RAIN_VARIANCE ->
                     String.format(
@@ -162,6 +164,7 @@ public enum Layer {
             return override & 0xffffff;
         }
         return switch (this) {
+            case SOIL -> accessible ? category("soil/" + c.soil().name(), true) : c.soil().colour;
             case CLIMATE_ZONES -> category(c.climateZone(), accessible);
             case RAIN_VARIANCE -> ramp((c.rainVariance() + 1) / 2, 0xCF8844, 0xE6DEBD, 0x3763AC);
             case JANUARY_RAIN -> ramp(c.januaryRain() / 1000, 0xC59C59, 0x2D8A78, 0x3548A0);
@@ -209,7 +212,7 @@ public enum Layer {
     }
 
     public boolean continentFill() {
-        return climate() || this == ROCKS;
+        return climate() || this == ROCKS || this == SOIL;
     }
 
     /** Display-only ocean fill: climate values, land colours and cached samples stay intact. */
@@ -276,6 +279,23 @@ public enum Layer {
     /** Fixed semantic/numeric order shared by the map key and full key. */
     public List<LegendEntry> legend(boolean accessible, Map<String, Integer> overrides) {
         List<LegendEntry> entries = new ArrayList<>();
+        if (this == SOIL) {
+            for (Soil soil : Soil.values()) {
+                if (soil == Soil.UNKNOWN) {
+                    continue;
+                }
+                Cell cell = sample(0, 250, 10, 0, 0, 1).withSoil(soil);
+                entries.add(
+                        new LegendEntry(
+                                soil.label
+                                        + (soil.fertility().isEmpty()
+                                                ? ""
+                                                : " · " + soil.fertility()),
+                                soil.label,
+                                List.of(color(cell, accessible, overrides))));
+            }
+            return List.copyOf(entries);
+        }
         if (this == CLIMATE_ZONES) {
             for (String zone : ClimateZones.CODES) {
                 entries.add(
@@ -401,6 +421,9 @@ public enum Layer {
     }
 
     public String legendNote() {
+        if (this == SOIL) {
+            return "Likely soil regions, using sea-level climate and forests. Local height, patches and custom worldgen can differ. Bonuses affect nutrient gain, not unfertilised crop growth.";
+        }
         return switch (this) {
             case CLIMATE_ZONES ->
                     "TFC climate classification at sea level; mountainous surface climates can differ. Hemisphere is evaluated separately at every location.";

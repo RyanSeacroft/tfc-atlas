@@ -6,7 +6,7 @@ public final class MapLabels {
         return !"Off".equals(mode)
                 && (layer == Layer.CLIMATE_ZONES
                         ? pixelsPerBlock > 0
-                        : (layer == Layer.ROCKS || layer == Layer.BIOMES)
+                        : (layer == Layer.ROCKS || layer == Layer.BIOMES || layer == Layer.SOIL)
                                 && sampleStep <= 8
                                 && pixelsPerBlock * 128 >= 12);
     }
@@ -16,6 +16,7 @@ public final class MapLabels {
             case ROCKS -> Cell.label(cell.rock());
             case BIOMES -> Cell.label(cell.biome());
             case CLIMATE_ZONES -> ClimateZones.label(cell.climateZone());
+            case SOIL -> cell.soil().label;
             default -> "";
         };
     }
@@ -32,6 +33,7 @@ public final class MapLabels {
             case ROCKS -> c.rock(rocks);
             case BIOMES -> c.biome();
             case CLIMATE_ZONES -> c.climateZone();
+            case SOIL -> c.soil().label;
             default -> null;
         };
     }

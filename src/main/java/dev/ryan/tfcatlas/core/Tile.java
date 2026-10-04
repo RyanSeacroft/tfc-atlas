@@ -14,7 +14,9 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 public record Tile(Key key, Cell[] cells) {
-    public static final int SIDE = 32, GRID = 8, FORMAT = 5;
+    public static final int SIDE = 32, GRID = 8, FORMAT = 6;
+    // Soil adds a field, but existing terrain samples can be upgraded in place.
+    public static final int CACHE_GENERATION = 5;
 
     public record Key(int x, int z, int step) {
         public Key {
@@ -83,6 +85,7 @@ public record Tile(Key key, Cell[] cells) {
                     d.writeFloat(c.rainVariance());
                     d.writeFloat(c.baseGroundwater());
                     d.writeUTF(c.climateZone());
+                    d.writeByte(c.soil().ordinal());
                 }
             }
             try {
@@ -103,7 +106,8 @@ public record Tile(Key key, Cell[] cells) {
         try (DataInputStream d =
                 new DataInputStream(
                         new BufferedInputStream(new GZIPInputStream(Files.newInputStream(path))))) {
-            if (d.readInt() != 0x54464154 || d.readInt() != FORMAT) {
+            int magic = d.readInt(), format = d.readInt();
+            if (magic != 0x54464154 || format != 5 && format != FORMAT) {
                 throw new IOException("Unknown cache version");
             }
             if (d.readInt() != expected.x
@@ -139,6 +143,13 @@ public record Tile(Key key, Cell[] cells) {
                                 d.readFloat(),
                                 d.readFloat(),
                                 d.readUTF());
+                if (format >= 6) {
+                    int soil = d.readUnsignedByte();
+                    if (soil >= Soil.values().length) {
+                        throw new IOException("Invalid soil cache");
+                    }
+                    a[i] = a[i].withSoil(Soil.values()[soil]);
+                }
                 if (!Float.isFinite(a[i].rainVariance())
                         || Math.abs(a[i].rainVariance()) > 1
                         || !Float.isFinite(a[i].baseGroundwater())
