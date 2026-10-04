@@ -93,6 +93,7 @@ tasks.register('releaseZip', Zip) {
                 'README.md', 'CONTRIBUTING.md', 'LICENSE', '.gitignore',
                 '.gitattributes', '.editorconfig'
     }
+    filesMatching('gradlew') { permissions { unix('rwxr-xr-x') } }
     // Forge uses SRG names in game, so ship its remapped JAR, not the dev JAR.
     def releaseJar = plugins.hasPlugin('net.neoforged.moddev.legacyforge') ? 'reobfJar' : 'jar'
     from(tasks.named(releaseJar)) { into 'releases' }

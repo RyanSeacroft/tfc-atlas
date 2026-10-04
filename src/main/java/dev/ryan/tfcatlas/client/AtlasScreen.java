@@ -45,12 +45,10 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "Leave blank for verified TFC multiplayer detection. Manual multiplayer seeds are used only for this session and are not saved."),
             o(
                     "mode",
-                    "Map overlay",
-                    "Full map, Unexplored only, Explored only, or Off. Layers never change Xaero’s saved map. Search highlights remain visible over explored terrain.",
+                    "Coverage",
+                    "Full Map can show TFC in unexplored terrain. Explored Only restricts TFC rendering to discovered terrain. Saved Xaero maps stay untouched.",
                     "Full map",
-                    "Unexplored only",
-                    "Explored only",
-                    "Off"),
+                    "Explored only"),
             o(
                     "useLocalSettings",
                     "Use singleplayer settings",
@@ -70,6 +68,12 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "false")
         },
         {
+            o(
+                    "atlasEnabled",
+                    "TFC Atlas",
+                    "Turns Atlas rendering on or off immediately without changing Xaero's stored map.",
+                    "true",
+                    "false"),
             o(
                     "climateZones",
                     "Climate zones: names separated by commas",
@@ -179,7 +183,20 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "Rock names on Rocks; biome names on Biomes; climate names on Climate zones; soil names on Soil regions. One name is centred inside each connected visible region; small patches wait until there is room.",
                     "Off",
                     "Active layer"),
-            o("opacity", "Overlay opacity (0–1)", "0 is transparent; 1 is solid."),
+            o(
+                    "display",
+                    "Display",
+                    "In Full Map, Xaero Map keeps discovered imagery and fills unexplored terrain with TFC. TFC Layers Only replaces the selected coverage; Overlay blends over discovered imagery.",
+                    "Xaero Map",
+                    "TFC Layers Only",
+                    "Overlay"),
+            o(
+                    "opacity",
+                    "Overlay opacity",
+                    "Only blends TFC over discovered Xaero imagery in Overlay mode.",
+                    "0.25",
+                    "0.5",
+                    "0.75"),
             o(
                     "legend",
                     "Map colour key",
@@ -494,14 +511,30 @@ public final class AtlasScreen extends AtlasMenuScreen {
 
     private void addOption(Option option, int x, int y, int w, int h) {
         if (option.choices.length > 0) {
+            String[] choices =
+                    option.key.equals("display")
+                            ? Profile.displays(values.get("mode")).toArray(String[]::new)
+                            : option.choices;
+            String shown = values.get(option.key);
+            if (option.key.equals("display") && !Arrays.asList(choices).contains(shown)) {
+                shown = choices.length == 0 ? "—" : choices[0];
+            }
             Runnable action =
                     () -> {
                         String old = values.get(option.key);
-                        int at = Arrays.asList(option.choices).indexOf(old);
-                        values.put(option.key, option.choices[(at + 1) % option.choices.length]);
+                        int at = Arrays.asList(choices).indexOf(old);
+                        if (option.key.equals("display") && at < 0) {
+                            at = 0;
+                        }
+                        values.put(option.key, choices[(at + 1) % choices.length]);
                         refresh();
                     };
-            Button b = smallButton(display(option.key, values.get(option.key)), x, y, w, h, action);
+            Button b = smallButton(display(option.key, shown), x, y, w, h, action);
+            b.active =
+                    choices.length > 0
+                            && (!option.key.equals("opacity")
+                                    || (Profile.displays(values.get("mode")).contains("Overlay")
+                                            && values.get("display").equals("Overlay")));
             b.setHeight(h);
             b.setTooltip(Tooltip.create(Component.literal(option.label + ": " + option.help)));
         } else {
@@ -543,6 +576,12 @@ public final class AtlasScreen extends AtlasMenuScreen {
     }
 
     private String display(String key, String value) {
+        if (key.equals("mode")) {
+            return value.replace(" map", " Map").replace(" only", " Only");
+        }
+        if (key.equals("opacity")) {
+            return Math.round(Double.parseDouble(value) * 100) + "%";
+        }
         if (value.equals("true")) {
             return "On";
         }
@@ -768,6 +807,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             AtlasClient.error = "";
             String before = generationKey(old), after = generationKey(next);
             AtlasClient.profile = next;
+            AtlasClient.prepareCoverage();
             resetHud = false;
             AtlasClient.save();
             if (!before.equals(after) || AtlasClient.engine == null) {
@@ -872,7 +912,6 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         : minecraft.player.blockPosition();
         int x = p.searchOrigin.equals("Coordinates") ? p.searchX : origin.getX(),
                 z = p.searchOrigin.equals("Coordinates") ? p.searchZ : origin.getZ();
-        XaeroViews.restore();
         p.showSearchLayer();
         values.put("layer", p.layer);
         AtlasClient.save();

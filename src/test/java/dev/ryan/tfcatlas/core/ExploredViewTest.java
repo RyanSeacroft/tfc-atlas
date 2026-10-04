@@ -41,17 +41,67 @@ public final class ExploredViewTest {
         var empty = TerrainCoverage.complement(List.of(), -16, -16, 16, 16);
         check(empty.equals(full), "Unexplored viewport excludes all explored-only labels");
         Profile p = new Profile();
-        check(p.mode.equals("Unexplored only"), "New profiles keep the existing default");
-        p.cycleCoverage();
         check(
-                p.mode.equals("Explored only") && p.maskedCoverage(),
-                "Explored-only mode follows unexplored-only");
+                p.mode.equals("Full map") && p.display.equals("Xaero Map") && p.atlasEnabled,
+                "New profiles start with the requested non-destructive view");
+        check(p.opacity == .5, "Default overlay opacity is 50 percent");
+        for (String expected : List.of("Explored only", "Full map", "Explored only")) {
+            p.cycleCoverage();
+            check(p.mode.equals(expected), "Coverage follows the requested order");
+            p.validate();
+            check(p.mode.equals(expected), "Coverage survives validation");
+        }
+        for (double opacity : new double[] {.25, .5, .75}) {
+            p.opacity = opacity;
+            // Expected discovered alpha, undiscovered alpha, and whether Display is useful.
+            Object[][] cases = {
+                {"Full map", "TFC Layers Only", 1f, 1f, true},
+                {"Full map", "Xaero Map", 0f, 1f, true},
+                {"Full map", "Overlay", (float) opacity, 1f, true},
+                {"Explored only", "TFC Layers Only", 1f, 0f, true},
+                {"Explored only", "Overlay", (float) opacity, 0f, true},
+            };
+            for (Object[] row : cases) {
+                p.mode = (String) row[0];
+                p.display = (String) row[1];
+                check(
+                        p.exploredOpacity() == (float) row[2],
+                        "Discovered compositing matches table");
+                check(
+                        p.unexploredOpacity() == (float) row[3],
+                        "Undiscovered TFC is opaque or absent");
+                check(
+                        p.displayEnabled() == (boolean) row[4],
+                        "Only useful Display controls enabled");
+                check(
+                        p.maskedCoverage() == ((float) row[2] != (float) row[3]),
+                        "Stencil separates unequal alpha passes");
+            }
+        }
+        p.mode = "Full map";
+        p.display = "TFC Layers Only";
+        for (String expected : List.of("Overlay", "Xaero Map", "TFC Layers Only")) {
+            p.cycleDisplay();
+            check(p.effectiveDisplay().equals(expected), "Full Map exposes all three displays");
+        }
+        p.mode = "Explored only";
+        p.display = "Xaero Map";
+        check(
+                p.effectiveDisplay().equals("TFC Layers Only"),
+                "Explored Only cannot select the redundant Xaero-only view");
+        p.cycleDisplay();
+        check(p.effectiveDisplay().equals("Overlay"), "Explored Only skips Xaero Map");
+        p.cycleDisplay();
+        check(
+                p.effectiveDisplay().equals("TFC Layers Only"),
+                "Explored Only cycles two useful displays");
+        p.atlasEnabled = false;
+        check(
+                p.exploredOpacity() == 0 && p.unexploredOpacity() == 0 && !p.overlayVisible(),
+                "The independent Atlas switch removes all Atlas rendering");
+        p.opacity = .65;
         p.validate();
-        check(p.mode.equals("Explored only"), "Explored-only mode survives validation");
-        p.cycleCoverage();
-        check(!p.overlayVisible(), "Off follows explored-only");
-        p.cycleCoverage();
-        check(p.mode.equals("Full map") && !p.maskedCoverage(), "Full map needs no mask");
+        check(p.opacity == .5, "Legacy freeform opacity migrates to 50 percent");
         System.out.println(
                 "PASS: 160,000 explored/unknown pixel checks, viewport holes and coverage choices");
     }

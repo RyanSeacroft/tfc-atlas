@@ -42,6 +42,7 @@ public final class AtlasClient {
             lastStartupError = 0;
     private static String cacheStartup = "Waiting for an Overworld session";
     private static boolean held = false, criteriaClipped = false;
+    private static Profile peekProfile;
     private static final HudEditor hud = new HudEditor();
     private static final List<CompactButton> toolbar = new ArrayList<>();
     private static HudResizeHandle toolbarGrip;
@@ -157,7 +158,6 @@ public final class AtlasClient {
     }
 
     private static void close() {
-        XaeroViews.restore();
         hud.reset();
         if (engine != null) {
             engine.close();
@@ -165,6 +165,7 @@ public final class AtlasClient {
         engine = null;
         renderer.clear();
         held = false;
+        peekProfile = null;
         error = "";
         cacheStartup = "Waiting for an Overworld session";
     }
@@ -189,9 +190,6 @@ public final class AtlasClient {
             return;
         }
         boolean mapOpen = XaeroBridge.isMap(mc.screen);
-        if (mc.screen == null || mc.level == null) {
-            XaeroViews.restore();
-        }
         if (mc.player != null
                 && mc.level != null
                 && mc.level.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)
@@ -254,7 +252,8 @@ public final class AtlasClient {
             "Rock: " + profile.rockLayer,
             "Key",
             profile.mode,
-            XaeroViews.selected(),
+            profile.effectiveDisplay(),
+            "TFC Atlas: " + (profile.atlasEnabled ? "On" : "Off"),
             "Resize / Move UI"
         };
         Button.OnPress[] actions = {
@@ -265,7 +264,6 @@ public final class AtlasClient {
                 save();
             },
             b -> {
-                XaeroViews.restore();
                 Layer[] layers = Layer.values();
                 profile.layer = layers[(profile.selected().ordinal() + 1) % layers.length].name();
                 save();
@@ -276,7 +274,16 @@ public final class AtlasClient {
             },
             b -> Minecraft.getInstance().setScreen(new LegendScreen(map)),
             b -> cycleCoverage(),
-            b -> XaeroViews.cycle(map),
+            b -> {
+                profile.cycleDisplay();
+                prepareCoverage();
+                save();
+            },
+            b -> {
+                profile.atlasEnabled = !profile.atlasEnabled;
+                prepareCoverage();
+                save();
+            },
             b -> hud.toggle()
         };
         for (int i = 0; i < names.length; i++) {
@@ -291,7 +298,14 @@ public final class AtlasClient {
     }
 
     private static void cycleCoverage() {
+        held = false;
+        peekProfile = null;
         profile.cycleCoverage();
+        prepareCoverage();
+        save();
+    }
+
+    static void prepareCoverage() {
         if (profile.maskedCoverage()) {
             try {
                 ExploredMask.prepare();
@@ -299,13 +313,12 @@ public final class AtlasClient {
                 message("Cannot prepare terrain coverage: " + ex.getMessage());
             }
         }
-        save();
     }
 
     private static void layoutToolbar(Screen screen, boolean show) {
         hud.hide(HudEditor.Panel.TOOLBAR);
         hud.toolbarGrip(null);
-        if (toolbar.size() != 9) {
+        if (toolbar.size() != 10) {
             return;
         }
         toolbar.get(2)
@@ -313,9 +326,18 @@ public final class AtlasClient {
                         Component.literal(
                                 profile.searchCircle ? "Search radius ✓" : "Search radius"));
         toolbar.get(4).setMessage(Component.literal("Rock: " + profile.rockLayer));
-        toolbar.get(6).setMessage(Component.literal(profile.mode));
-        toolbar.get(7).setMessage(Component.literal(XaeroViews.selected()));
-        toolbar.get(8).setMessage(Component.literal(hud.editing ? "Done" : "Resize / Move UI"));
+        toolbar.get(6).setMessage(Component.literal("Coverage: " + profile.coverageLabel()));
+        toolbar.get(7)
+                .setMessage(
+                        Component.literal(
+                                "Display: "
+                                        + (profile.displayEnabled()
+                                                ? profile.effectiveDisplay()
+                                                : "—")));
+        toolbar.get(8)
+                .setMessage(
+                        Component.literal("TFC Atlas: " + (profile.atlasEnabled ? "On" : "Off")));
+        toolbar.get(9).setMessage(Component.literal(hud.editing ? "Done" : "Resize / Move UI"));
         HudLayout.Box safe = HudLayout.safeArea(screen.width, screen.height);
         int[] textWidths = new int[toolbar.size()];
         var font = Minecraft.getInstance().font;
@@ -343,7 +365,9 @@ public final class AtlasClient {
         for (int i = 0; i < toolbar.size(); i++) {
             CompactButton button = toolbar.get(i);
             button.visible = dock != null && widths[i] > 0;
-            button.active = !hud.editing || i == toolbar.size() - 1;
+            button.active =
+                    (!hud.editing || i == toolbar.size() - 1)
+                            && (i != 7 || profile.displayEnabled());
             if (dock != null && widths[i] > 0) {
                 button.layout(x, dock.y(), widths[i], height, scale);
                 x += widths[i] + 3;
@@ -407,10 +431,7 @@ public final class AtlasClient {
         lastHook = System.currentTimeMillis();
         try {
             ensure(s);
-            if (!XaeroViews.layers()
-                    || !view.overworld()
-                    || engine == null
-                    || (!profile.overlayVisible() && !held)) {
+            if (!view.overworld() || engine == null || (!profile.overlayVisible() && !held)) {
                 return;
             }
             if (!(view.scale() > 0) || !Double.isFinite(view.scale())) {
@@ -420,7 +441,13 @@ public final class AtlasClient {
                 hoverX = (int) Math.floor(view.x() + (mx - view.centerX()) / view.scale());
                 hoverZ = (int) Math.floor(view.z() + (my - view.centerZ()) / view.scale());
             }
-            renderer.render(g, view, profile, engine);
+            renderer.render(
+                    g,
+                    view,
+                    held && !profile.overlayVisible() && peekProfile != null
+                            ? peekProfile
+                            : profile,
+                    engine);
         } catch (Exception ex) {
             if (System.currentTimeMillis() - lastError > 10000) {
                 lastError = System.currentTimeMillis();
@@ -469,8 +496,7 @@ public final class AtlasClient {
             lines.add("TFC Atlas: Overworld only");
         } else if (System.currentTimeMillis() - lastHook > 2500) {
             lines.add("TFC Atlas: overlay hook unavailable for this Xaero version");
-        } else if (!XaeroViews.layers()) {
-            lines.add(XaeroViews.selected() + " · use the view button for TFC layers");
+
         } else if (engine != null && (profile.overlayVisible() || held)) {
             lines.add(
                     profile.layerTitle()
@@ -537,8 +563,7 @@ public final class AtlasClient {
             }
         }
         boolean keyVisible =
-                XaeroViews.layers()
-                        && profile.legend
+                profile.legend
                         && engine != null
                         && (profile.overlayVisible() || held)
                         && view != null
@@ -803,6 +828,11 @@ public final class AtlasClient {
             cycleCoverage();
             e.setCanceled(true);
         } else if (HOLD.matches(e.getKeyCode(), e.getScanCode())) {
+            // Keep the existing hold-to-preview shortcut separate from the saved mode.
+            peekProfile = Profiles.JSON.fromJson(Profiles.JSON.toJson(profile), Profile.class);
+            peekProfile.mode = "Full map";
+            peekProfile.display = "TFC Layers Only";
+            peekProfile.atlasEnabled = true;
             held = true;
             e.setCanceled(true);
         } else if (Screen.hasControlDown() && e.getKeyCode() == GLFW.GLFW_KEY_C) {
@@ -825,6 +855,7 @@ public final class AtlasClient {
     private static void keyUp(ScreenEvent.KeyReleased.Post e) {
         if (HOLD.matches(e.getKeyCode(), e.getScanCode())) {
             held = false;
+            peekProfile = null;
         }
     }
 

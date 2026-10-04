@@ -51,7 +51,7 @@ public final class StrataTest {
         Profile p = new Profile();
         p.rocks = "marble";
         check(
-                p.mode.equals("Unexplored only"),
+                p.mode.equals("Full map") && p.display.equals("Xaero Map"),
                 "Fresh profiles start with explored terrain preserved");
         check(!p.query().matchesRegion(c), "Top search cannot match the middle rock");
         p.searchRockLayer = "Middle";
@@ -100,8 +100,8 @@ public final class StrataTest {
                         com.google.gson.JsonParser.parseString("{\"mode\":\"Full map\"}")
                                 .getAsJsonObject());
         check(
-                old.mode.equals("Unexplored only"),
-                "Legacy full-map default migrates once to unexplored only");
+                old.mode.equals("Full map") && old.display.equals("Xaero Map"),
+                "Legacy profiles migrate to the new full-map default");
         Cell[] cells = new Cell[1024];
         Arrays.fill(cells, c);
         var key = new Tile.Key(-1, 0, 2);

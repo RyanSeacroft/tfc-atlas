@@ -307,7 +307,8 @@ public final class IntegrationSmoke {
                 screenshot("10-groundwater");
                 AtlasClient.profile.layer = "RAINFALL";
                 AtlasClient.profile.highlights = true;
-                AtlasClient.profile.mode = "Unexplored only";
+                AtlasClient.profile.mode = "Full map";
+                AtlasClient.profile.display = "Xaero Map";
                 phase = 5;
                 ticks = 0;
             } else if (phase == 5 && ++ticks > 100) {

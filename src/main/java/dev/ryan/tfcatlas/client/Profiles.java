@@ -78,9 +78,9 @@ public final class Profiles {
             }
         }
         profile.cacheRevision = 1;
-        // The old independent enable switch is now the Off state of the coverage cycle.
+        // Preserve the former enable switch while moving Off out of the coverage control.
         if (stored.has("enabled") && !stored.get("enabled").getAsBoolean()) {
-            profile.mode = "Off";
+            profile.atlasEnabled = false;
         }
         double previous = stored.has("uiScale") ? stored.get("uiScale").getAsDouble() : .5;
         if (!stored.has("uiRevision") && previous == .75) {
@@ -118,11 +118,20 @@ public final class Profiles {
                 && stored.get("rockMode").getAsString().equals("Y range")) {
             profile.searchRockLayer = "Any layer";
         }
-        // One-time upgrade of the former full-map default; keep an intentional Off state.
-        if (!stored.has("coverageRevision") && profile.mode.equals("Full map")) {
-            profile.mode = "Unexplored only";
+        if (!stored.has("atlasEnabled") && "Off".equals(profile.mode)) {
+            profile.atlasEnabled = false;
         }
-        profile.coverageRevision = 1;
+        if ("Unexplored only".equals(profile.mode)) {
+            profile.mode = "Full map";
+            profile.display = "Xaero Map";
+        } else if ("Off".equals(profile.mode)) {
+            profile.mode = "Full map";
+            profile.display = "Xaero Map";
+        }
+        if ("Xaero Map Only".equals(profile.display)) {
+            profile.display = "Xaero Map";
+        }
+        profile.coverageRevision = 2;
         profile.searchRevision = 2;
         profile.climateZones =
                 dev.ryan.tfcatlas.core.ClimateZones.displayList(profile.climateZones);
