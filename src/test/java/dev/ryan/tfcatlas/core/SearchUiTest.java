@@ -248,8 +248,8 @@ public final class SearchUiTest {
                         && criteria.contains("Terrain: Lake, River"),
                 "Summary lists every submitted category and feature in stable order");
         check(
-                criteria.contains("Rocks: Any") && criteria.contains("Biomes: Any"),
-                "Unrestricted name filters are explicit");
+                criteria.stream().noneMatch(line -> line.contains("Any")),
+                "Unrestricted filters do not clutter the current search");
         check(
                 criteria.contains("Rain: 20–30 mm · Temp: 20–30 °C")
                         && criteria.contains("Surface Y: 0–4 (predicted)"),
@@ -281,7 +281,7 @@ public final class SearchUiTest {
         check(
                 restored.criteriaX == -1
                         && restored.criteriaY == -1
-                        && restored.criteriaScale == .5,
+                        && restored.criteriaScale == DefaultHud.SEARCH_SCALE,
                 "Reset UI restores the new panel too");
         var yProfile = new Profile();
         yProfile.minY = 100;

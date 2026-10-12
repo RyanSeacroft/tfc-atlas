@@ -19,8 +19,40 @@ public record SearchQuery(
         Set<String> features,
         int minY,
         int maxY,
-        String rockLayer) {
+        String rockLayer,
+        SearchLimits limits) {
+    public SearchQuery(
+            Set<String> rocks,
+            Set<String> biomes,
+            Set<Integer> rockTypes,
+            float minRain,
+            float maxRain,
+            float minTemp,
+            float maxTemp,
+            Set<String> features,
+            int minY,
+            int maxY,
+            String rockLayer) {
+        this(
+                rocks,
+                biomes,
+                rockTypes,
+                minRain,
+                maxRain,
+                minTemp,
+                maxTemp,
+                features,
+                minY,
+                maxY,
+                rockLayer,
+                SearchLimits.ANY);
+    }
+
     public SearchQuery {
+        limits = limits == null ? SearchLimits.ANY : limits;
+        if (!limits.soils().isEmpty()) {
+            throw new IllegalArgumentException("Soil-type search requires Minecraft 1.21.1");
+        }
         if (!Set.of("Top", "Middle", "Bottom", "Any layer", "Dikes").contains(rockLayer)) {
             throw new IllegalArgumentException("Choose Top, Middle, Bottom, Any layer or Dikes");
         }
@@ -145,7 +177,7 @@ public record SearchQuery(
 
     public static Set<String> names(String s) {
         Set<String> out = new HashSet<>();
-        for (String v : s.split(",")) {
+        for (String v : s.split("[,\\r\\n]+")) {
             v = v.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
             if (!v.isEmpty() && !v.equals("any")) {
                 out.add(v);
@@ -174,6 +206,13 @@ public record SearchQuery(
     }
 
     public boolean matchesRegion(Cell c) {
+        if (limits.ocean() && !c.land()) {
+            return false;
+        }
+        if (limits.minInland() > 0 && c.inland() < limits.minInland()
+                || limits.maxInland() != Float.MAX_VALUE && c.inland() > limits.maxInland()) {
+            return false;
+        }
         return (dikes() || matchingLayers(c) != 0)
                 && named(biomes, c.biome())
                 && (rockTypes.isEmpty() || rockTypes.contains(c.rockType()))

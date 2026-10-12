@@ -185,7 +185,7 @@ public final class CoverageTest {
         }
         Profile p = new Profile();
         check(
-                p.toolbarScale == .5 && p.legend && p.mapLabels.equals("Off"),
+                p.toolbarScale == .5 && p.legend && p.mapLabels.equals("Active layer"),
                 "Compact defaults and optional map labels");
         p.toolbarScale = Double.NaN;
         p.mapLabels = "Invalid";

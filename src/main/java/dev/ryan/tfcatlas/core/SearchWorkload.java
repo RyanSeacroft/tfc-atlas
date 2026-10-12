@@ -18,6 +18,15 @@ public record SearchWorkload(long samples, List<String> reasons) {
             SearchQuery query, int radius, int resolution, double cachedFraction, boolean manual) {
         long samples = Sampling.estimatedSamples(radius, resolution);
         List<String> reasons = new ArrayList<>();
+        if (query.limits().slope()) {
+            reasons.add("Nine surface predictions per matching location for steepness");
+        }
+        if (query.limits().water()) {
+            reasons.add("Nearby river and coastline lookups");
+        }
+        if (query.limits().areaRestricted()) {
+            reasons.add("Connected area filtering; live highlights are provisional");
+        }
         if (manual && radius > resolution * 512L || samples > 2_000_000) {
             reasons.add("Very many sample locations");
         }

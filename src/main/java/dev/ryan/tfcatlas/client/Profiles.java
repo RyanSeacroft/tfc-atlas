@@ -51,6 +51,7 @@ public final class Profiles {
     }
 
     public static Profile load(String world) {
+        SavedGroups.load();
         Path p = root().resolve("profiles/" + hash(world) + ".json");
         try {
             if (Files.exists(p)) {
@@ -69,6 +70,15 @@ public final class Profiles {
 
     public static Profile decode(JsonObject stored) {
         Profile profile = JSON.fromJson(stored, Profile.class);
+        if (!stored.has("cacheRevision")) {
+            if (profile.memoryTiles == 512) {
+                profile.memoryTiles = 2048;
+            }
+            if (profile.diskMB == 256) {
+                profile.diskMB = 1024;
+            }
+        }
+        profile.cacheRevision = 1;
         // Preserve the former enable switch while moving Off out of the coverage control.
         if (stored.has("enabled") && !stored.get("enabled").getAsBoolean()) {
             profile.atlasEnabled = false;
@@ -124,14 +134,30 @@ public final class Profiles {
         }
         profile.coverageRevision = 2;
         profile.searchRevision = 2;
-        profile.uiRevision = 6;
+        // New defaults replace unchanged old defaults; deliberate panel resizing stays saved.
+        if (!stored.has("uiRevision") || stored.get("uiRevision").getAsInt() < 9) {
+            if (stored.has("infoScale") && (profile.infoScale == .5 || profile.infoScale == .345)) {
+                profile.infoScale = dev.ryan.tfcatlas.core.DefaultHud.INFO_SCALE;
+            }
+            if (stored.has("criteriaScale") && profile.criteriaScale == .5) {
+                profile.criteriaScale = dev.ryan.tfcatlas.core.DefaultHud.SEARCH_SCALE;
+            }
+        }
+        profile.uiRevision = 9;
         profile.validate();
         return profile;
     }
 
     /** Presets contain search inputs only, never the session seed or nested presets. */
     public static String preset(Profile profile) {
-        return JSON.toJson(searchFields(JSON.toJsonTree(profile).getAsJsonObject()));
+        JsonObject snapshot = searchFields(JSON.toJsonTree(profile).getAsJsonObject());
+        for (String field : java.util.List.of("biomes", "rocks", "climateZones")) {
+            if (snapshot.has(field)) {
+                snapshot.addProperty(
+                        field, SavedGroups.snapshot(field, snapshot.get(field).getAsString()));
+            }
+        }
+        return JSON.toJson(snapshot);
     }
 
     private static JsonObject searchFields(JsonObject source) {
@@ -140,6 +166,19 @@ public final class Profiles {
                 new String[] {
                     "rocks",
                     "biomes",
+                    "biomeGroups",
+                    "rockGroups",
+                    "soils",
+                    "minRiver",
+                    "maxRiver",
+                    "minOcean",
+                    "maxOcean",
+                    "minSlope",
+                    "maxSlope",
+                    "minInland",
+                    "maxInland",
+                    "minArea",
+                    "maxArea",
                     "categories",
                     "feature",
                     "minRain",

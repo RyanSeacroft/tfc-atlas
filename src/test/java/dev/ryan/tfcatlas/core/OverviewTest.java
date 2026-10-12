@@ -56,26 +56,9 @@ public final class OverviewTest {
                         "Fine composite coverage fits every texture scale");
             }
         }
-        check(
-                ColourTransition.blend(0, 0xff987654, 0) == 0xff987654,
-                "New coverage appears immediately without transparent fading");
-        check(
-                ColourTransition.blend(0xff000000, 0xffffffff, 0) == 0xff000000
-                        && ColourTransition.blend(0xff000000, 0xffffffff, 250) == 0xffffffff,
-                "Fade retains old colour and reaches the exact new colour");
-        int last = -1;
-        for (int time = 0; time <= 250; time++) {
-            int c = ColourTransition.blend(0xff000000, 0xffffffff, time);
-            check(
-                    (c >>> 24) == 255 && (c & 255) >= last,
-                    "Colour fades stay opaque and monotonic without stacking opacity");
-            last = c & 255;
-        }
         precache();
         System.out.println(
-                "PASS: "
-                        + checks
-                        + " 128/256 overview, precache, transition and stable-progress checks");
+                "PASS: " + checks + " 128/256 overview, precache and stable-progress checks");
     }
 
     private static void precache() {

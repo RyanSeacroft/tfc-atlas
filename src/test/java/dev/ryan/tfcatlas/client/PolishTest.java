@@ -118,8 +118,8 @@ public final class PolishTest {
         displayed.addAll(first.subList(1, first.size()));
         check(
                 frontier.next(displayed::contains).get(0).equals(first.get(0))
-                        && frontier.readyPrefix(k -> !k.equals(first.get(0))).isEmpty(),
-                "Prefetch refills without painting ahead of a pending centre upload");
+                        && frontier.next(displayed::contains).size() == 64,
+                "One missing central tile does not stop the prefetch window refilling");
         displayed.add(first.get(0));
         var next = frontier.next(displayed::contains);
         check(

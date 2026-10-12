@@ -13,7 +13,7 @@ import net.minecraft.core.QuartPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.ChunkPos;
 
-/** Stateless sampling; TFC's layer areas and region caches support both Atlas workers. */
+/** Exact terrain sampling with bounded, thread-owned climate and regional-point caches. */
 final class FineSampler {
     private final java.util.Map<net.minecraft.world.level.block.Block, String> rockNames =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -23,6 +23,12 @@ final class FineSampler {
     private final RegionBiomeSource source;
     private final RegionChunkDataGenerator chunks;
     private final ThreadLocal<TerrainShapeSampler> terrainShape;
+    private final ThreadLocal<dev.ryan.tfcatlas.core.SampleCache<ChunkData>> dataCache =
+            ThreadLocal.withInitial(() -> new dev.ryan.tfcatlas.core.SampleCache<>(128));
+    private final ThreadLocal<
+                    dev.ryan.tfcatlas.core.SampleCache<net.dries007.tfc.world.region.Region.Point>>
+            pointCache =
+                    ThreadLocal.withInitial(() -> new dev.ryan.tfcatlas.core.SampleCache<>(1024));
 
     FineSampler(
             RegionGenerator regions, RegionBiomeSource source, RegionChunkDataGenerator chunks) {
@@ -37,11 +43,10 @@ final class FineSampler {
     }
 
     Cell sample(int x, int z, int resolution) {
-        var point = regions.getOrCreateRegionPoint(Math.floorDiv(x, 128), Math.floorDiv(z, 128));
+        var point = point(Math.floorDiv(x, 128), Math.floorDiv(z, 128));
         var biome = source.getBiomeExtension(QuartPos.fromBlock(x), QuartPos.fromBlock(z));
         String id = biomeNames.computeIfAbsent(biome, b -> b.key().location().toString());
-        var data = new ChunkData(chunks, new ChunkPos(Math.floorDiv(x, 16), Math.floorDiv(z, 16)));
-        chunks.generate(data);
+        var data = data(x, z);
         String rock = rock(x, 0, z, 0);
         var terrain = source.getBiomeExtensionNoRiver(QuartPos.fromBlock(x), QuartPos.fromBlock(z));
         int gx = Math.floorDiv(x, 128), gz = Math.floorDiv(z, 128);
@@ -50,9 +55,9 @@ final class FineSampler {
                         x,
                         z,
                         point.biomeAltitude,
-                        regions.getOrCreateRegionPoint(gx + 1, gz).biomeAltitude,
-                        regions.getOrCreateRegionPoint(gx, gz + 1).biomeAltitude,
-                        regions.getOrCreateRegionPoint(gx + 1, gz + 1).biomeAltitude);
+                        point(gx + 1, gz).biomeAltitude,
+                        point(gx, gz + 1).biomeAltitude,
+                        point(gx + 1, gz + 1).biomeAltitude);
         boolean mountain =
                 resolution <= 32
                         ? terrainShape.get().mountain(x, z)
@@ -75,6 +80,30 @@ final class FineSampler {
                 flags,
                 rock(x, RockStrata.referenceY(chunks, x, z, 1), z, 0),
                 rock(x, RockStrata.referenceY(chunks, x, z, 2), z, 0));
+    }
+
+    private net.dries007.tfc.world.region.Region.Point point(int x, int z) {
+        var cache = pointCache.get();
+        long key = dev.ryan.tfcatlas.core.SampleCache.position(x, z);
+        var point = cache.get(key);
+        if (point == null) {
+            point = regions.getOrCreateRegionPoint(x, z);
+            cache.put(key, point);
+        }
+        return point;
+    }
+
+    private ChunkData data(int x, int z) {
+        int cx = Math.floorDiv(x, 16), cz = Math.floorDiv(z, 16);
+        var cache = dataCache.get();
+        long key = dev.ryan.tfcatlas.core.SampleCache.position(cx, cz);
+        var data = cache.get(key);
+        if (data == null) {
+            data = new ChunkData(chunks, new ChunkPos(cx, cz));
+            chunks.generate(data);
+            cache.put(key, data);
+        }
+        return data;
     }
 
     String rock(int x, int y, int z, int surfaceY) {

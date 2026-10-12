@@ -25,7 +25,12 @@ class AtlasRegionGenerator extends RegionGenerator {
         // region cache.
         Region[] out = new Region[1];
         visualizeRegion(x, z, (task, region) -> out[0] = region);
-        return out[0];
+        Region region = out[0];
+        if (region != null && !contains(region, x, z)) {
+            // Regenerating the same too-small diagnostic window cannot fix a clipped cell.
+            region = AtlasRegionRecovery.generate(this, x, z);
+        }
+        return region;
     }
 
     private static boolean contains(Region region, int x, int z) {

@@ -1,6 +1,7 @@
 package dev.ryan.tfcatlas.client;
 
 import dev.ryan.tfcatlas.core.Cell;
+import dev.ryan.tfcatlas.core.DefaultHud;
 import dev.ryan.tfcatlas.core.HudLayout;
 import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.RockLayer;
@@ -18,27 +19,32 @@ public class Profile {
             hover = true,
             spawn = false,
             highlights = true,
-            labels = false,
-            accessible = false,
             diskCache = true,
             atlasEnabled = true;
+    public boolean showCriteria = true;
+    public int exportPixels = 256, exportStep = 128;
+    public String exportCenter = "Map focus";
+    public boolean exportTransparentOcean = false, exportMetadata = true;
     public String display = "Xaero Map";
     public double opacity = .5, highlightOpacity = .55, labelScale = .5;
     // Negative positions and zero key dimensions use automatic placement and full-list sizing.
-    public double toolbarScale = .5, keyScale = .5, infoScale = .5, criteriaScale = .5;
+    public double toolbarScale = .5,
+            keyScale = .5,
+            infoScale = DefaultHud.INFO_SCALE,
+            criteriaScale = DefaultHud.SEARCH_SCALE;
+    public int cacheRevision = 1;
     public int criteriaX = -1, criteriaY = -1;
     public int keyX = -1, keyY = -1, infoX = -1, infoY = -1, keyWidth = 0, keyHeight = 0;
-    public String mapLabels = "Off";
+    public String mapLabels = "Active layer";
     public boolean searchCircle = true;
+    public boolean minimapHighlights = false;
     public boolean climateContinents = true;
     public Map<String, int[]> keySizes = new HashMap<>();
     public Map<String, Double> keyScales = new HashMap<>();
-    public int uiRevision = 6, searchRevision = 2, coverageRevision = 2;
-    public int highlightColor = 0xFFFF55,
-            outline = 1,
-            labelSpacing = 100,
-            memoryTiles = 512,
-            diskMB = 256,
+    public int uiRevision = 9, searchRevision = 2, coverageRevision = 2;
+    public int highlightColor = 0x1FFF55,
+            memoryTiles = 2048,
+            diskMB = 1024,
             toolbarX = 32,
             toolbarY = 40;
     public int spawnX = 0,
@@ -49,6 +55,17 @@ public class Profile {
     public float continentalness = .5f, temperatureConstant = 0, rainfallConstant = 0;
     public boolean useLocalSettings = true;
     public String rocks = "", biomes = "", categories = "", feature = "";
+    public String biomeGroups = "", rockGroups = "";
+    public String soils = "";
+    public float minRiver = 0,
+            maxRiver = Float.MAX_VALUE,
+            minOcean = 0,
+            maxOcean = Float.MAX_VALUE,
+            minSlope = 0,
+            maxSlope = 90,
+            minInland = 0,
+            maxInland = Float.MAX_VALUE;
+    public double minArea = 0, maxArea = Double.MAX_VALUE;
     public String precision = "Auto",
             rockLayer = "Top",
             searchRockLayer = "Top",
@@ -65,11 +82,38 @@ public class Profile {
             minTemp = -Float.MAX_VALUE,
             maxTemp = Float.MAX_VALUE;
     public static final Set<String> OPTIONAL_LIMITS =
-            Set.of("minRain", "maxRain", "minTemp", "maxTemp", "minY", "maxY");
+            Set.of(
+                    "minRiver",
+                    "maxRiver",
+                    "minOcean",
+                    "maxOcean",
+                    "minSlope",
+                    "maxSlope",
+                    "minInland",
+                    "maxInland",
+                    "minArea",
+                    "maxArea",
+                    "minRain",
+                    "maxRain",
+                    "minTemp",
+                    "maxTemp",
+                    "minY",
+                    "maxY");
 
     public String searchValue(String key) {
         try {
             Object value = Profile.class.getField(key).get(this);
+            if (Set.of("minRiver", "minOcean", "minSlope", "minInland", "minArea").contains(key)
+                    && value instanceof Number number
+                    && number.doubleValue() == 0) {
+                return "";
+            }
+            if (key.equals("maxArea") && maxArea == Double.MAX_VALUE) {
+                return "";
+            }
+            if (key.equals("maxSlope") && maxSlope == 90) {
+                return "";
+            }
             if (value instanceof Float f && Math.abs(f) == Float.MAX_VALUE) {
                 return "";
             }
@@ -88,7 +132,13 @@ public class Profile {
     }
 
     public void clearSearchSettings() {
-        rocks = biomes = categories = feature = "";
+        soils = "";
+        minRiver = minOcean = minSlope = minInland = 0;
+        maxRiver = maxOcean = maxInland = Float.MAX_VALUE;
+        maxSlope = 90;
+        minArea = 0;
+        maxArea = Double.MAX_VALUE;
+        rocks = biomes = biomeGroups = rockGroups = categories = feature = "";
         precision = "Auto";
         searchRockLayer = "Top";
         searchOrigin = "Player";
@@ -177,18 +227,34 @@ public class Profile {
     }
 
     public int mapColor(Cell cell) {
-        return selected()
-                .mapColor(cell, accessible, colors, climateContinents, selectedRockLayer());
+        return selected().mapColor(cell, false, colors, climateContinents, selectedRockLayer());
     }
 
     public int mapStyleHash() {
-        return Objects.hash(accessible, colors, climateContinents, rockLayer);
+        return Objects.hash(colors, climateContinents, rockLayer);
     }
 
     public SearchQuery query() {
+        if (!biomeGroups.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Resolve biome groups against the current world first");
+        }
+        return queryWithBiomes(SearchQuery.names(biomes));
+    }
+
+    public SearchQuery query(dev.ryan.tfcatlas.core.BiomeGroups catalog) {
+        return queryWithBiomes(catalog.resolve(biomes, biomeGroups));
+    }
+
+    private Set<String> resolvedRocks() {
+        return dev.ryan.tfcatlas.core.SearchGroups.resolve(
+                rocks, rockGroups, WorldSearchGroups.rocks());
+    }
+
+    private SearchQuery queryWithBiomes(Set<String> selectedBiomes) {
         return new SearchQuery(
-                SearchQuery.names(rocks),
-                SearchQuery.names(biomes),
+                resolvedRocks(),
+                selectedBiomes,
                 SearchQuery.types(categories),
                 minRain,
                 maxRain,
@@ -197,7 +263,23 @@ public class Profile {
                 SearchQuery.terrain(feature),
                 minY,
                 maxY,
-                searchRockLayer);
+                searchRockLayer,
+                searchLimits());
+    }
+
+    private dev.ryan.tfcatlas.core.SearchLimits searchLimits() {
+        return new dev.ryan.tfcatlas.core.SearchLimits(
+                SearchQuery.names(soils),
+                minRiver,
+                maxRiver,
+                minOcean,
+                maxOcean,
+                minSlope,
+                maxSlope,
+                minInland,
+                maxInland,
+                minArea,
+                maxArea);
     }
 
     public RockLayer selectedRockLayer() {
@@ -206,20 +288,22 @@ public class Profile {
 
     /** Applied only when Search is pressed; later manual layer choices remain untouched. */
     public void showSearchLayer() {
-        SearchQuery q = query();
+        SearchQuery q = queryWithBiomes(SearchQuery.names(biomes));
         Layer chosen = null;
         if (q.dikes() || !q.rocks().isEmpty()) {
             chosen = Layer.ROCKS;
             if (!searchRockLayer.equals("Any layer") && !q.dikes()) {
                 rockLayer = searchRockLayer;
             }
-        } else if (!q.biomes().isEmpty()) {
+        } else if (!q.biomes().isEmpty() || !biomeGroups.isBlank()) {
             chosen = Layer.BIOMES;
         } else if (!q.rockTypes().isEmpty()) {
             chosen = Layer.ROCK_TYPES;
         } else if (!q.features().isEmpty()) {
             chosen = Layer.RIVERS;
-        } else if (q.heightRestricted()) {
+        } else if (q.limits().water()) {
+            chosen = Layer.RIVERS;
+        } else if (q.heightRestricted() || q.limits().slope()) {
             chosen = Layer.ALTITUDE;
         } else {
             boolean rain = minRain != -Float.MAX_VALUE || maxRain != Float.MAX_VALUE,
@@ -247,7 +331,9 @@ public class Profile {
     }
 
     public double keyScale() {
-        return keyScales.getOrDefault(selected().name(), keyScale);
+        return keyScales.getOrDefault(
+                selected().name(),
+                keyScale == .5 ? DefaultHud.keyScale(selected().name()) : keyScale);
     }
 
     public void keyScale(double scale) {
@@ -259,7 +345,9 @@ public class Profile {
     }
 
     public int keyHeight() {
-        return keySizes.getOrDefault(selected().name(), new int[] {0, 0})[1];
+        return keySizes.getOrDefault(
+                        selected().name(), new int[] {0, DefaultHud.keyHeight(selected().name())})[
+                1];
     }
 
     public void keySize(int width, int height) {
@@ -270,7 +358,9 @@ public class Profile {
         toolbarX = 32;
         toolbarY = 40;
         keyX = keyY = infoX = infoY = criteriaX = criteriaY = -1;
-        toolbarScale = keyScale = infoScale = criteriaScale = .5;
+        toolbarScale = keyScale = .5;
+        infoScale = DefaultHud.INFO_SCALE;
+        criteriaScale = DefaultHud.SEARCH_SCALE;
         keyWidth = keyHeight = 0;
         keySizes.clear();
         keyScales.clear();
@@ -360,8 +450,15 @@ public class Profile {
         resultLimit = 5;
         searchX = Math.max(-29_999_984, Math.min(29_999_984, searchX));
         searchZ = Math.max(-29_999_984, Math.min(29_999_984, searchZ));
-        outline = Math.max(0, Math.min(5, outline));
-        labelSpacing = Math.max(50, Math.min(400, labelSpacing));
+        if (!Set.of(256, 512, 1024).contains(exportPixels)) {
+            exportPixels = 256;
+        }
+        if (!Set.of(16, 32, 64, 128, 256).contains(exportStep)) {
+            exportStep = 128;
+        }
+        if (!Set.of("Map focus", "Player").contains(exportCenter == null ? "" : exportCenter)) {
+            exportCenter = "Map focus";
+        }
     }
 
     private static double panelScale(double scale) {

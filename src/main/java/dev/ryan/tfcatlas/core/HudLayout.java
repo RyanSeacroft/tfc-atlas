@@ -59,6 +59,32 @@ public final class HudLayout {
         }
     }
 
+    /** Automatic search panel shares the info panel's left edge and sits just above it. */
+    public static Box above(Box safe, Box below, int width, int height, int gap) {
+        int x = below == null ? safe.x() : below.x();
+        int y = below == null ? safe.bottom() - height : below.y() - height - gap;
+        return new Box(
+                Math.max(safe.x(), Math.min(safe.right() - width, x)),
+                Math.max(safe.y(), Math.min(safe.bottom() - height, y)),
+                width,
+                height);
+    }
+
+    /** The automatic key sits below the toolbar, above the two left-hand readout panels. */
+    public static Box keyArea(Box safe, Box toolbar, Box criteria, Box info) {
+        int top =
+                toolbar == null ? safe.y() : Math.max(safe.y(), toolbar.bottom() + DefaultHud.GAP);
+        int bottom = safe.bottom();
+        if (criteria != null) {
+            bottom = Math.min(bottom, criteria.y() - DefaultHud.GAP);
+        }
+        if (info != null) {
+            bottom = Math.min(bottom, info.y() - DefaultHud.GAP);
+        }
+        top = Math.min(top, safe.bottom());
+        return new Box(safe.x(), top, safe.width(), Math.max(0, bottom - top));
+    }
+
     /** Find the closest free position against actual native-widget bounds. Null means no room. */
     public static Box place(
             Box bounds,

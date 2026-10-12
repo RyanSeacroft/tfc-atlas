@@ -1,7 +1,6 @@
 package dev.ryan.tfcatlas.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import dev.ryan.tfcatlas.core.ColourTransition;
 import dev.ryan.tfcatlas.core.DetailCoverage;
 import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.RockLayer;
@@ -12,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,20 +33,19 @@ final class MapPages {
         final int[] inheritedStep = new int[64];
         final long[] childRevisions = new long[256];
 
-        private record Fade(int[] from, int[] to, long started) {}
-
-        final Map<Integer, Fade> fades = new HashMap<>();
         final DetailCoverage fine;
         DynamicTexture texture;
         ResourceLocation id;
-        int pixels;
+        int pixels, coveredPixels;
         boolean dirty;
         long revision, nativeRevision;
+        private long uploadedFrame = -1;
 
         Page(Key key, int pixels) {
             this.key = key;
             fine = new DetailCoverage(Math.max(32, key.step * Tile.GRID));
             resize(pixels);
+            seedFromCache(this);
         }
 
         int tileSpan() {
@@ -76,7 +73,6 @@ final class MapPages {
         }
 
         void resize(int next) {
-            finishFades();
             Arrays.fill(childRevisions, 0);
             if (fine != null) {
                 next = Math.max(next, key.step / (32 / Tile.GRID));
@@ -85,12 +81,16 @@ final class MapPages {
             Arrays.fill(inheritedRevision, 0);
             nativeRevision = revision = ++serial;
             NativeImage image = new NativeImage(next * 8, next * 8, true);
+            coveredPixels = 0;
             if (texture != null) {
                 NativeImage old = texture.getPixels();
                 for (int z = 0; z < next * 8; z++) {
                     for (int x = 0; x < next * 8; x++) {
-                        image.setPixelRGBA(
-                                x, z, old.getPixelRGBA(x * pixels / next, z * pixels / next));
+                        int colour = old.getPixelRGBA(x * pixels / next, z * pixels / next);
+                        image.setPixelRGBA(x, z, colour);
+                        if ((colour >>> 24) != 0) {
+                            coveredPixels++;
+                        }
                     }
                 }
                 close();
@@ -99,6 +99,15 @@ final class MapPages {
             pixels = next;
             texture = new DynamicTexture(image);
             texture.setFilter(false, false);
+            texture.bind();
+            org.lwjgl.opengl.GL11.glTexParameteri(
+                    org.lwjgl.opengl.GL11.GL_TEXTURE_2D,
+                    org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S,
+                    org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+            org.lwjgl.opengl.GL11.glTexParameteri(
+                    org.lwjgl.opengl.GL11.GL_TEXTURE_2D,
+                    org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T,
+                    org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
             id = Minecraft.getInstance().getTextureManager().register("tfcatlas_page", texture);
             dirty = false;
         }
@@ -109,14 +118,8 @@ final class MapPages {
                     ox = (index % 8) * pixels,
                     oz = (index / 8) * pixels,
                     group = 32 / pixels;
-            NativeImage image = texture.getPixels();
-            finishFade(index);
-            int[] from = new int[pixels * pixels], to = new int[pixels * pixels];
-            boolean changed = false;
             for (int z = 0; z < pixels; z++) {
                 for (int x = 0; x < pixels; x++) {
-                    int at = x + z * pixels;
-                    from[at] = to[at] = image.getPixelRGBA(ox + x, oz + z);
                     if (fine != null
                             && key.step > 32 / Tile.GRID
                             && !fine.coarsePixelAllowed(ox + x, oz + z, pixels)) {
@@ -129,7 +132,7 @@ final class MapPages {
                             int rgb =
                                     key.layer.mapColor(
                                             tile.cells()[x * group + dx + (z * group + dz) * 32],
-                                            profile.accessible,
+                                            false,
                                             profile.colors,
                                             profile.climateContinents,
                                             rockLayer);
@@ -139,16 +142,11 @@ final class MapPages {
                         }
                     }
                     int n = group * group;
-                    to[at] = 0xff000000 | ((blue / n) << 16) | ((green / n) << 8) | (red / n);
-                    if ((from[at] >>> 24) == 0) {
-                        image.setPixelRGBA(ox + x, oz + z, to[at]);
-                    } else {
-                        changed |= from[at] != to[at];
-                    }
+                    paint(
+                            ox + x,
+                            oz + z,
+                            0xff000000 | ((blue / n) << 16) | ((green / n) << 8) | (red / n));
                 }
-            }
-            if (changed) {
-                fades.put(index, new Fade(from, to, System.nanoTime() / 1_000_000));
             }
             painted.set(index);
             ready.set(index);
@@ -166,7 +164,6 @@ final class MapPages {
             if (painted.get(index)) {
                 return;
             }
-            source.finishFades();
             boolean lowerPriority =
                     inheritedStep[index] != 0 && source.key.step > inheritedStep[index];
             if (inheritedStep[index] == source.key.step
@@ -192,7 +189,7 @@ final class MapPages {
                             sz = (int) ((wz - source.blockZ()) * source.size() / source.span());
                     int rgba = src.getPixelRGBA(sx, sz);
                     if ((rgba >>> 24) != 0) {
-                        dst.setPixelRGBA(ox + x, oz + z, rgba);
+                        paint(ox + x, oz + z, rgba);
                         any = true;
                     }
                 }
@@ -209,19 +206,17 @@ final class MapPages {
         }
 
         void copyFine(Page source, Tile.Key tile) {
-            source.finishFades();
             int ratio = key.step / (32 / Tile.GRID),
                     x = tile.x() - key.x * 8 * ratio,
                     z = tile.z() - key.z * 8 * ratio;
             if (!fine.needs(x, z, source.nativeRevision)) {
                 return;
             }
-            finishFade(index(Tile.Key.at(tile.blockX(), tile.blockZ(), key.step)));
             int fromIndex = source.index(tile),
                     sx = fromIndex % 8 * source.pixels,
                     sz = fromIndex / 8 * source.pixels;
             int unit = pixels / ratio, ox = x * unit, oz = z * unit;
-            NativeImage src = source.texture.getPixels(), dst = texture.getPixels();
+            NativeImage src = source.texture.getPixels();
             for (int iz = 0; iz < unit; iz++) {
                 for (int ix = 0; ix < unit; ix++) {
                     int x0 = ix * source.pixels / unit,
@@ -237,7 +232,7 @@ final class MapPages {
                             blue += (c >>> 16) & 255;
                         }
                     }
-                    dst.setPixelRGBA(
+                    paint(
                             ox + ix,
                             oz + iz,
                             0xff000000 | ((blue / n) << 16) | ((green / n) << 8) | (red / n));
@@ -254,7 +249,6 @@ final class MapPages {
             if (painted.get(index)) {
                 return false;
             }
-            source.finishFades();
             int x = child.x() - key.x * 16, z = child.z() - key.z * 16, at = x + 16 * z;
             if (childRevisions[at] == source.nativeRevision) {
                 return false;
@@ -265,7 +259,7 @@ final class MapPages {
                     si = source.index(child),
                     sx = (si % 8) * source.pixels,
                     sz = (si / 8) * source.pixels;
-            NativeImage src = source.texture.getPixels(), dst = texture.getPixels();
+            NativeImage src = source.texture.getPixels();
             boolean any = false;
             for (int iz = 0; iz < unit; iz++) {
                 for (int ix = 0; ix < unit; ix++) {
@@ -290,7 +284,7 @@ final class MapPages {
                         }
                     }
                     if (n > 0) {
-                        dst.setPixelRGBA(
+                        paint(
                                 ox + ix,
                                 oz + iz,
                                 0xff000000 | ((b / n) << 16) | ((g / n) << 8) | (r / n));
@@ -307,45 +301,23 @@ final class MapPages {
             return any;
         }
 
-        private void finishFade(int index) {
-            Fade f = fades.remove(index);
-            if (f != null) {
-                writeFade(index, f, ColourTransition.DURATION_MS);
-                nativeRevision = revision = ++serial;
-            }
-        }
-
-        private void finishFades() {
-            for (int index : new ArrayList<>(fades.keySet())) {
-                finishFade(index);
-            }
-        }
-
-        private void writeFade(int index, Fade f, long elapsed) {
+        private void paint(int x, int z, int colour) {
             NativeImage image = texture.getPixels();
-            int ox = index % 8 * pixels, oz = index / 8 * pixels;
-            for (int z = 0; z < pixels; z++) {
-                for (int x = 0; x < pixels; x++) {
-                    int i = x + z * pixels;
-                    image.setPixelRGBA(
-                            ox + x, oz + z, ColourTransition.blend(f.from[i], f.to[i], elapsed));
-                }
+            boolean before = (image.getPixelRGBA(x, z) >>> 24) != 0;
+            boolean after = (colour >>> 24) != 0;
+            if (before != after) {
+                coveredPixels += after ? 1 : -1;
             }
-            dirty = true;
+            image.setPixelRGBA(x, z, colour);
         }
 
         void upload() {
-            long now = System.nanoTime() / 1_000_000;
-            for (var it = fades.entrySet().iterator(); it.hasNext(); ) {
-                var entry = it.next();
-                long elapsed = now - entry.getValue().started;
-                writeFade(entry.getKey(), entry.getValue(), elapsed);
-                revision = ++serial;
-                if (elapsed >= ColourTransition.DURATION_MS) {
-                    it.remove();
-                    nativeRevision = revision;
-                }
+            // One packed page may be drawn dozens of times to clip individual fallback tiles.
+            // Upload it once, before the first draw of this frame.
+            if (uploadedFrame == frame) {
+                return;
             }
+            uploadedFrame = frame;
             if (dirty) {
                 texture.upload();
                 dirty = false;
@@ -357,11 +329,90 @@ final class MapPages {
         }
     }
 
-    private long serial;
+    private long serial, frame;
+    private TileWindow activeWindow;
+
+    void view(TileWindow window) {
+        activeWindow = window;
+    }
+
+    void beginFrame() {
+        frame++;
+    }
+
     private final Map<Key, Page> pages = new LinkedHashMap<>(128, .75f, true);
 
+    /**
+     * Seed new texture pages from overlapping cached colours at ANY resolution. This also handles
+     * skipped quality levels and zooming out from 8/16-block detail. Copy only into transparent
+     * pixels: compositing remains a single opacity pass.
+     */
+    private void seedFromCache(Page target) {
+        // An inherited full page is just as usable as a fully generated page. Avoid rescanning
+        // its pixels each time a background tile arrives.
+        if (target.coveredPixels == target.size() * target.size()) {
+            return;
+        }
+        List<Page> sources = new ArrayList<>(pages.values());
+        sources.sort(Comparator.comparingInt(p -> p.key.step));
+        var destination = raster(target);
+        for (Page source : sources) {
+            if (source != target && source.key.layer == target.key.layer) {
+                target.dirty |=
+                        dev.ryan.tfcatlas.core.CachedColours.fillMissing(
+                                destination,
+                                raster(source),
+                                activeWindow == null
+                                        ? target.blockX()
+                                        : activeWindow.minX()
+                                                * Tile.SIDE
+                                                * Tile.GRID
+                                                * activeWindow.step(),
+                                activeWindow == null
+                                        ? target.blockZ()
+                                        : activeWindow.minZ()
+                                                * Tile.SIDE
+                                                * Tile.GRID
+                                                * activeWindow.step(),
+                                activeWindow == null
+                                        ? target.blockX() + target.span()
+                                        : (activeWindow.maxX() + 1)
+                                                * Tile.SIDE
+                                                * Tile.GRID
+                                                * activeWindow.step(),
+                                activeWindow == null
+                                        ? target.blockZ() + target.span()
+                                        : (activeWindow.maxZ() + 1)
+                                                * Tile.SIDE
+                                                * Tile.GRID
+                                                * activeWindow.step());
+            }
+        }
+    }
+
+    private dev.ryan.tfcatlas.core.CachedColours.Raster raster(Page page) {
+        NativeImage image = page.texture.getPixels();
+        return new dev.ryan.tfcatlas.core.CachedColours.Raster(
+                page.blockX(),
+                page.blockZ(),
+                page.span(),
+                page.size(),
+                new dev.ryan.tfcatlas.core.CachedColours.Pixels() {
+                    @Override
+                    public int get(int x, int z) {
+                        return image.getPixelRGBA(x, z);
+                    }
+
+                    @Override
+                    public void put(int x, int z, int colour) {
+                        page.paint(x, z, colour);
+                        page.fallback.set(x / page.pixels + 8 * (z / page.pixels));
+                    }
+                });
+    }
+
     static int pixels(TileWindow window, double scale) {
-        return Sampling.texturePixels(window.step(), scale);
+        return Sampling.cachedTexturePixels(window.step(), scale);
     }
 
     private Key key(Tile.Key tile, Layer layer) {
@@ -397,6 +448,19 @@ final class MapPages {
 
     void inherit(Tile.Key tile, Layer layer, int pixels) {
         Page target = get(tile, layer);
+        if (target == null
+                && pages.values().stream()
+                        .anyMatch(
+                                p ->
+                                        p.key.layer == layer
+                                                && p.blockX() < tile.blockX() + tile.span()
+                                                && p.blockX() + p.span() > tile.blockX()
+                                                && p.blockZ() < tile.blockZ() + tile.span()
+                                                && p.blockZ() + p.span() > tile.blockZ())) {
+            Key key = key(tile, layer);
+            target = new Page(key, pixels);
+            pages.put(key, target);
+        }
         if (target != null && target.painted.get(target.index(tile))) {
             return;
         }
@@ -513,6 +577,41 @@ final class MapPages {
         return found;
     }
 
+    /** Fill the entire view before drawing a new quality, retaining one opacity pass. */
+    void fillWindow(TileWindow window, Layer layer, int pixels) {
+        Set<Key> needed = new HashSet<>();
+        for (Tile.Key tile : window) {
+            needed.add(key(tile, layer));
+        }
+        List<Page> sources = new ArrayList<>(pages.values());
+        for (Key key : needed) {
+            int span = 8 * Tile.SIDE * Tile.GRID * key.step;
+            int x = key.x * span, z = key.z * span;
+            boolean overlap =
+                    sources.stream()
+                            .anyMatch(
+                                    p ->
+                                            p.key.layer == layer
+                                                    && p.blockX() < x + span
+                                                    && p.blockX() + p.span() > x
+                                                    && p.blockZ() < z + span
+                                                    && p.blockZ() + p.span() > z);
+            if (!overlap) {
+                continue;
+            }
+            Page target = pages.get(key);
+            if (target == null) {
+                target = new Page(key, pixels);
+                pages.put(key, target);
+            } else {
+                if (target.pixels < pixels) {
+                    target.resize(pixels);
+                }
+                seedFromCache(target);
+            }
+        }
+    }
+
     void trim(TileWindow window, Layer layer) {
         long pixels = pages.values().stream().mapToLong(p -> (long) p.size() * p.size()).sum();
         // About 64 MiB of colour pixels in each of CPU/GPU memory; prefer retaining this view.
@@ -537,5 +636,6 @@ final class MapPages {
     void clear() {
         pages.values().forEach(Page::close);
         pages.clear();
+        activeWindow = null;
     }
 }

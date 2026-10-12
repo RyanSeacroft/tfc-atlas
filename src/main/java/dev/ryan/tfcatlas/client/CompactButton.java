@@ -52,13 +52,17 @@ final class CompactButton extends Button {
         }
         int color = isHoveredOrFocused() ? 0xED40494B : 0xD0161B1D;
         g.fill(getX(), getY(), getX() + width, getY() + height, color);
-        if (isFocused()) {
-            g.renderOutline(getX(), getY(), width, height, 0xFFE8D9B6);
-        }
+        HudStyle.frame(
+                g,
+                new dev.ryan.tfcatlas.core.HudLayout.Box(getX(), getY(), width, height),
+                isFocused());
         var font = Minecraft.getInstance().font;
-        float textScale = Math.min(scale, (width - 4f) / Math.max(1, font.width(getMessage())));
+        float textScale =
+                Math.min(
+                        Math.min(scale, (height - 4f) / 9),
+                        (width - 6f) / Math.max(1, font.width(getMessage())));
         g.pose().pushPose();
-        g.pose().translate(getX() + width / 2., getY() + (height - 8 * textScale) / 2., 0);
+        g.pose().translate(getX() + width / 2., getY() + (height - 9 * textScale) / 2., 0);
         g.pose().scale(textScale, textScale, 1);
         g.drawCenteredString(font, getMessage(), 0, 0, active ? 0xE8D9B6 : 0x888888);
         g.pose().popPose();

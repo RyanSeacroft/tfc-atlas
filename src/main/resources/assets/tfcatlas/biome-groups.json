@@ -1,0 +1,72 @@
+{
+  "badlands": [
+    "tfc:badlands",
+    "tfc:inverted_badlands"
+  ],
+  "canyons": [
+    "tfc:canyons",
+    "tfc:low_canyons"
+  ],
+  "coasts": [
+    "tfc:salt_marsh",
+    "tfc:shore",
+    "tfc:tidal_flats"
+  ],
+  "highlands": [
+    "tfc:highlands"
+  ],
+  "hills": [
+    "tfc:hills",
+    "tfc:rolling_hills"
+  ],
+  "lakes": [
+    "tfc:lake",
+    "tfc:mountain_lake",
+    "tfc:oceanic_mountain_lake",
+    "tfc:old_mountain_lake",
+    "tfc:plateau_lake",
+    "tfc:volcanic_mountain_lake",
+    "tfc:volcanic_oceanic_mountain_lake"
+  ],
+  "mountains": [
+    "tfc:mountain_lake",
+    "tfc:mountains",
+    "tfc:oceanic_mountain_lake",
+    "tfc:oceanic_mountains",
+    "tfc:old_mountain_lake",
+    "tfc:old_mountains",
+    "tfc:volcanic_mountain_lake",
+    "tfc:volcanic_mountains",
+    "tfc:volcanic_oceanic_mountain_lake",
+    "tfc:volcanic_oceanic_mountains"
+  ],
+  "oceans": [
+    "tfc:deep_ocean",
+    "tfc:deep_ocean_trench",
+    "tfc:ocean",
+    "tfc:ocean_reef"
+  ],
+  "plains": [
+    "tfc:lowlands",
+    "tfc:plains"
+  ],
+  "plateaus": [
+    "tfc:plateau",
+    "tfc:plateau_lake"
+  ],
+  "rivers": [
+    "tfc:river"
+  ],
+  "volcanic": [
+    "tfc:canyons",
+    "tfc:volcanic_mountain_lake",
+    "tfc:volcanic_mountains",
+    "tfc:volcanic_oceanic_mountain_lake",
+    "tfc:volcanic_oceanic_mountains"
+  ],
+  "wetlands": [
+    "tfc:lowlands",
+    "tfc:salt_marsh",
+    "tfc:tidal_flats"
+  ]
+}

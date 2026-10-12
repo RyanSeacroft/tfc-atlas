@@ -130,8 +130,8 @@ public final class StrataTest {
         }
         check(
                 overlay.edges().stream()
-                        .anyMatch(e -> e.x0() == key.blockX() + 16 && e.x1() == e.x0()),
-                "Different adjacent match layers keep a visible internal border");
+                        .noneMatch(e -> e.x0() == key.blockX() + 16 && e.x1() == e.x0()),
+                "Adjacent matched layers share one outline while retaining their interior colours");
         check(
                 overlay.edges().stream().anyMatch(e -> e.layerMask() == 5),
                 "Multiple-layer match boundaries retain their layer mask");
@@ -176,9 +176,9 @@ public final class StrataTest {
         }
         var options = List.of("plateau", "plateau lake");
         check(
-                SearchCompletion.suggest("plateau", 7, options, true) != null
+                SearchCompletion.suggest("plateau", 7, options, true) == null
                         && SearchCompletion.suggest("plateau", 7, options, false) == null,
-                "Plateau lake ghost suggestion disappears when the field loses focus");
+                "An exact plateau token never suggests plateau lake, focused or not");
         check(
                 SearchCompletion.suggest("granite, mar", 12, List.of("granite", "marble"), true)
                         .apply("granite, mar")

@@ -27,7 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.GameRenderer;
@@ -54,12 +53,13 @@ public final class MapRenderer {
 
     private final MapPages pages = new MapPages();
     private TileWindow window, detailWindow, previewWindow;
-    private Iterator<Tile.Key> previewCursor = Collections.emptyIterator();
+    private Iterator<Tile.Key> visibleCacheCursor = Collections.emptyIterator();
     private Iterator<Tile.Key> detailCursor = Collections.emptyIterator(),
             cacheCursor = Collections.emptyIterator(),
             inheritCursor = Collections.emptyIterator();
     private int samplingStep = 4;
     private TileLoadFrontier frontier;
+    private dev.ryan.tfcatlas.core.CachedRestoreOrder restoreOrder, previewOrder;
     private Layer loadingLayer;
     private int styleHash, searchStyle;
     private final java.util.concurrent.ExecutorService labelWorker =
@@ -83,6 +83,27 @@ public final class MapRenderer {
     private final Map<Tile.Key, Texture> searchPages = new LinkedHashMap<>(64, .75f, true);
     private final ExploredMask explored = new ExploredMask();
     public String notice = "";
+    public long loadingCount;
+    private long nextLoadingCount;
+
+    private void updateLoadingCount(
+            RegionEngine engine, Profile profile, int pixels, boolean changed) {
+        long now = System.nanoTime();
+        if (!changed && now < nextLoadingCount) {
+            return;
+        }
+        long missing = 0;
+        for (int z = window.minZ(); z <= window.maxZ(); z++) {
+            for (int x = window.minX(); x <= window.maxX(); x++) {
+                Tile.Key key = new Tile.Key(x, z, window.step());
+                if (!pages.ready(key, profile.selected(), pixels) && !engine.failed(key)) {
+                    missing++;
+                }
+            }
+        }
+        loadingCount = missing;
+        nextLoadingCount = now + 200_000_000L;
+    }
 
     public void clear() {
         if (labelFuture != null) {
@@ -93,10 +114,12 @@ public final class MapRenderer {
         labelRevision = -1;
         labelX = Double.NaN;
         pages.clear();
+        loadingCount = nextLoadingCount = 0;
         window = detailWindow = previewWindow = null;
-        previewCursor = Collections.emptyIterator();
+        visibleCacheCursor = Collections.emptyIterator();
         detailCursor = cacheCursor = inheritCursor = Collections.emptyIterator();
         frontier = null;
+        restoreOrder = previewOrder = null;
         loadingLayer = null;
         samplingStep = 4;
         clearSearchTextures();
@@ -106,6 +129,7 @@ public final class MapRenderer {
     }
 
     public void render(GuiGraphics g, XaeroBridge.View v, Profile p, RegionEngine engine) {
+        pages.beginFrame();
         int newStyle = p.mapStyleHash();
         if (styleHash != newStyle) {
             clear();
@@ -119,39 +143,73 @@ public final class MapRenderer {
         int resolution = Tile.GRID * step;
         boolean backgroundDetail = Sampling.backgroundDetail(step);
         TileWindow next = window(v, width, height, step),
-                fineWindow = window(v, width, height, 32 / Tile.GRID),
+                fineWindow = window(v, width, height, Sampling.prefetchStep(step, v.scale())),
                 preview = window(v, width, height, PrecacheArea.STEP);
-        if (!next.equals(window)
-                || !fineWindow.equals(detailWindow)
-                || !preview.equals(previewWindow)
+        boolean viewChanged = !sameBounds(next, window) || loadingLayer != p.selected();
+        if (!sameBounds(next, window)
+                || !sameBounds(fineWindow, detailWindow)
+                || !sameBounds(preview, previewWindow)
                 || loadingLayer != p.selected()) {
             window = next;
             detailWindow = fineWindow;
             previewWindow = preview;
             loadingLayer = p.selected();
-            previewCursor = previewWindow.iterator();
+            visibleCacheCursor = window.iterator();
             frontier = new TileLoadFrontier(window);
+            restoreOrder = new dev.ryan.tfcatlas.core.CachedRestoreOrder(window);
+            previewOrder = new dev.ryan.tfcatlas.core.CachedRestoreOrder(previewWindow);
             inheritCursor = window.iterator();
             detailCursor = detailWindow.iterator();
             cacheCursor = detailWindow.iterator();
             engine.prioritize(window, detailWindow, previewWindow);
         }
+        // Retain current focus for distance ordering without resetting prefetch on every pixel pan.
+        window = next;
+        detailWindow = fineWindow;
+        previewWindow = preview;
         int pixels = MapPages.pixels(window, v.scale()),
                 finePixels = MapPages.pixels(detailWindow, v.scale());
-        // Carry existing colours across the resolution boundary before new native tiles arrive.
-        pages.inheritChildren(window, p.selected(), pixels);
-        if (step < Sampling.MAX_MAP_STEP) {
-            for (int checked = 0; checked < 128; checked++) {
-                if (!inheritCursor.hasNext()) {
-                    inheritCursor = window.iterator();
-                }
-                if (!inheritCursor.hasNext()) {
+        pages.view(window);
+        int previewPixels = MapPages.pixels(previewWindow, v.scale());
+        restoreOrder.advance(
+                k ->
+                        pages.ready(k, p.selected(), pixels)
+                                || engine.peek(k) != null
+                                || engine.failed(k));
+        previewOrder.advance(
+                k ->
+                        pages.ready(k, p.selected(), previewPixels)
+                                || engine.peek(k) != null
+                                || engine.failed(k));
+        if (step < PrecacheArea.STEP) {
+            int requested = 0, checked = 0;
+            for (Tile.Key key : previewWindow) {
+                if (++checked > 128 || requested >= 8 || engine.pendingCachedCount() >= 64) {
                     break;
                 }
-                pages.inherit(inheritCursor.next(), p.selected(), pixels);
-                if (checked + 1 >= window.count()) {
-                    break;
+                if (!pages.ready(key, p.selected(), previewPixels)
+                        && engine.peek(key) == null
+                        && !engine.failed(key)) {
+                    if (engine.saved(key)) {
+                        engine.requestPreview(key);
+                        requested++;
+                    } else if (engine.pendingCount(previewWindow, false) < 1) {
+                        engine.requestPreview(key);
+                        requested++;
+                    }
                 }
+            }
+        }
+        // A slow uncached tile at the focus must not hold back already saved outer detail.
+        for (int checked = 0;
+                checked < Math.min(1024, window.count()) && engine.pendingCachedCount() < 48;
+                checked++) {
+            if (!visibleCacheCursor.hasNext()) {
+                visibleCacheCursor = window.iterator();
+            }
+            Tile.Key key = visibleCacheCursor.next();
+            if (engine.cached(key) && !pages.ready(key, p.selected(), pixels)) {
+                engine.request(key);
             }
         }
         boolean needLabelData = MapLabels.visible(p.mapLabels, p.selected(), v.scale(), step);
@@ -161,10 +219,21 @@ public final class MapRenderer {
                                 engine.failed(k)
                                         || pages.ready(k, p.selected(), pixels)
                                                 && (!needLabelData || engine.peek(k) != null));
-        Set<Tile.Key> readyPrefix = frontier.readyPrefix(k -> engine.peek(k) != null);
-        int previewPixels = MapPages.pixels(previewWindow, v.scale()), uploads = 0;
+        // Queue foreground work before any preview copying. Ready detail never waits for a
+        // neighbour.
+        for (Tile.Key key : batch) {
+            // A full terrain queue must not prevent instant reads of already saved detail.
+            if (engine.pendingCount(window, engine.saved(key)) < 32) {
+                engine.request(key);
+            }
+        }
+        engine.prioritize(window, detailWindow, previewWindow);
+        int uploads = 0;
+        boolean previewArrived = false;
         List<Tile> loaded = new ArrayList<>(engine.loaded());
-        loaded.sort(Comparator.comparingDouble(tile -> window.distanceSquared(tile.key())));
+        loaded.sort(
+                Comparator.<Tile>comparingInt(tile -> window.contains(tile.key()) ? 0 : 1)
+                        .thenComparingDouble(tile -> window.distanceSquared(tile.key())));
         for (Tile tile : loaded) {
             int target =
                     window.contains(tile.key())
@@ -172,45 +241,39 @@ public final class MapRenderer {
                             : detailWindow.contains(tile.key())
                                     ? finePixels
                                     : previewWindow.contains(tile.key()) ? previewPixels : 0;
-            boolean central =
-                    tile.key().step() == step
-                            ? readyPrefix.contains(tile.key())
-                            : frontier.allowsUpload(tile.key());
-            if (target > 0 && central && !pages.ready(tile.key(), p.selected(), target)) {
+            boolean ordered =
+                    window.contains(tile.key())
+                            ? restoreOrder.allows(tile.key())
+                            : previewWindow.contains(tile.key())
+                                    ? previewOrder.allows(tile.key())
+                                    : true;
+            if (target > 0 && ordered && !pages.ready(tile.key(), p.selected(), target)) {
                 pages.add(tile, p, target);
-                if (++uploads >= 24) {
+                previewArrived |= tile.key().step() > window.step();
+                if (++uploads >= 64) {
                     break;
                 }
             }
         }
-        pages.preferFine(window, detailWindow, p.selected(), pixels);
-        for (Tile.Key key : batch) {
-            if (engine.pendingCount() >= 24) {
+        // A quality change copies cached colours once, exclusively into holes. New native
+        // detail replaces that preview immediately; it is never held behind a radial barrier.
+        if (viewChanged || previewArrived) {
+            pages.fillWindow(window, p.selected(), pixels);
+        }
+        for (int checked = 0; checked < Math.min(128, window.count()); checked++) {
+            if (!inheritCursor.hasNext()) {
+                inheritCursor = window.iterator();
+            }
+            if (!inheritCursor.hasNext()) {
                 break;
             }
-            engine.request(key);
+            pages.inherit(inheritCursor.next(), p.selected(), pixels);
         }
-        // Restore the all-layer background cache before asking for more fine generation.
-        if (step < PrecacheArea.STEP) {
-            for (int checked = 0; checked < 128 && engine.pendingCount() < 28; checked++) {
-                if (!previewCursor.hasNext()) {
-                    previewCursor = previewWindow.iterator();
-                }
-                if (!previewCursor.hasNext()) {
-                    break;
-                }
-                Tile.Key key = previewCursor.next();
-                if (engine.cached(key) && !pages.ready(key, p.selected(), previewPixels)) {
-                    engine.request(key);
-                }
-                if (checked + 1 >= previewWindow.count()) {
-                    break;
-                }
-            }
-        }
+        pages.preferFine(window, detailWindow, p.selected(), pixels);
+        updateLoadingCount(engine, p, pixels, viewChanged);
         // Existing disk detail is read before spending time generating fallback for that area.
-        if (backgroundDetail && step > 32 / Tile.GRID) {
-            for (int checked = 0; checked < 96 && engine.pendingCount() < 30; checked++) {
+        if (backgroundDetail && detailWindow.step() != step) {
+            for (int checked = 0; checked < 96 && engine.pendingCachedCount() < 56; checked++) {
                 if (!cacheCursor.hasNext()) {
                     cacheCursor = detailWindow.iterator();
                 }
@@ -226,8 +289,8 @@ public final class MapRenderer {
                 }
             }
         }
-        // A few 32-block jobs remain in the same bounded queue; they cannot flood the foreground.
-        if (backgroundDetail && step != 32 / Tile.GRID) {
+        // Prefetch the next close-up quality (or 32-block overview detail) with spare capacity.
+        if (backgroundDetail && detailWindow.step() != step) {
             for (int checked = 0; checked < 96 && engine.pendingCount() < 32; checked++) {
                 if (!detailCursor.hasNext()) {
                     detailCursor = detailWindow.iterator();
@@ -252,7 +315,7 @@ public final class MapRenderer {
                         : resolution > 32
                                 ? "32-block detail · " + resolution + "-block fallback"
                                 : resolution + "-block terrain prediction";
-        if (engine.pendingCount() > 0) {
+        if (loadingCount > 0) {
             notice += " · loading…";
         }
         g.flush();
@@ -340,27 +403,27 @@ public final class MapRenderer {
             if (p.highlights) {
                 searchOutline(g, v, p, search, width, height);
             }
-            if (p.spawn) {
-                int r = engine.settings.spawnDistance();
-                int x = engine.settings.spawnCenterX(), z = engine.settings.spawnCenterZ();
-                if (p.outline > 0) {
-                    outline(g, v, width, height, x - r, z - r, x + r, z + r, 0xFFFFD65A, p.outline);
-                }
-                int sx = screenX(v, width, x), sy = screenZ(v, height, z);
-                g.fill(sx - 4, sy, sx + 5, sy + 1, 0xFFFFD65A);
-                g.fill(sx, sy - 4, sx + 1, sy + 5, 0xFFFFD65A);
+            if (p.spawn && v.zoom() >= .02) {
                 var level = Minecraft.getInstance().level;
                 if (level != null
                         && level.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)) {
                     var spawn = level.getSharedSpawnPos();
-                    int wx = screenX(v, width, spawn.getX()), wz = screenZ(v, height, spawn.getZ());
-                    g.renderOutline(wx - 4, wz - 4, 9, 9, 0xFFFFFFFF);
-                    g.drawString(
-                            Minecraft.getInstance().font,
-                            "World spawn",
-                            wx + 6,
-                            wz - 4,
-                            0xFFFFFFFF);
+                    var font = Minecraft.getInstance().font;
+                    float scale = (float) p.labelScale;
+                    g.pose().pushPose();
+                    g.pose()
+                            .translate(
+                                    v.centerX() + (spawn.getX() - v.x()) * v.scale(),
+                                    v.centerZ() + (spawn.getZ() - v.z()) * v.scale(),
+                                    0);
+                    g.renderOutline(-4, -4, 9, 9, 0xFFFFFFFF);
+                    // Label backing begins three pixels beyond the marker at every label scale.
+                    g.pose().translate(8, 0, 0);
+                    g.pose().scale(scale, scale, 1);
+                    int textWidth = font.width("World spawn");
+                    g.fill(0, -6, textWidth + 6, 6, 0x80161B1D);
+                    g.drawString(font, "World spawn", 3, -4, 0xFFE9E2CF);
+                    g.pose().popPose();
                 }
             }
             if (p.searchCircle && engine.activeQuery != null) {
@@ -397,6 +460,15 @@ public final class MapRenderer {
         pages.trim(window, p.selected());
     }
 
+    private static boolean sameBounds(TileWindow a, TileWindow b) {
+        return b != null
+                && a.minX() == b.minX()
+                && a.minZ() == b.minZ()
+                && a.maxX() == b.maxX()
+                && a.maxZ() == b.maxZ()
+                && a.step() == b.step();
+    }
+
     private static TileWindow window(XaeroBridge.View v, int width, int height, int step) {
         return TileWindow.visible(v.x(), v.z(), v.scale(), width, height, step);
     }
@@ -404,12 +476,14 @@ public final class MapRenderer {
     private static void drawPage(
             GuiGraphics g, XaeroBridge.View v, MapPages.Page page, int bx, int bz, int span) {
         page.upload();
-        float x = (float) (v.centerX() + (bx - v.x()) * v.scale()),
-                y = (float) (v.centerZ() + (bz - v.z()) * v.scale());
-        float size = (float) (span * v.scale()),
-                u = (bx - page.blockX()) / (float) page.span(),
+        var quad =
+                dev.ryan.tfcatlas.core.MapQuad.project(
+                        bx, bz, span, v.x(), v.z(), v.scale(), v.centerX(), v.centerZ());
+        float x = quad.left(), y = quad.top(), right = quad.right(), bottom = quad.bottom();
+        float u = (bx - page.blockX()) / (float) page.span(),
                 vv = (bz - page.blockZ()) / (float) page.span(),
-                uvSpan = span / (float) page.span();
+                uRight = ((long) bx + span - page.blockX()) / (float) page.span(),
+                vBottom = ((long) bz + span - page.blockZ()) / (float) page.span();
         g.flush();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -420,9 +494,9 @@ public final class MapRenderer {
         var b = Tesselator.getInstance().getBuilder();
         var pose = g.pose().last().pose();
         b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        b.vertex(pose, x, y + size, 0).uv(u, vv + uvSpan).endVertex();
-        b.vertex(pose, x + size, y + size, 0).uv(u + uvSpan, vv + uvSpan).endVertex();
-        b.vertex(pose, x + size, y, 0).uv(u + uvSpan, vv).endVertex();
+        b.vertex(pose, x, bottom, 0).uv(u, vBottom).endVertex();
+        b.vertex(pose, right, bottom, 0).uv(uRight, vBottom).endVertex();
+        b.vertex(pose, right, y, 0).uv(uRight, vv).endVertex();
         b.vertex(pose, x, y, 0).uv(u, vv).endVertex();
         BufferUploader.drawWithShader(b.end());
     }
@@ -613,27 +687,6 @@ public final class MapRenderer {
         return (int) Math.round(v.centerZ() + (z - v.z()) * v.scale());
     }
 
-    private static void outline(
-            GuiGraphics g,
-            XaeroBridge.View v,
-            int w,
-            int h,
-            int x0,
-            int z0,
-            int x1,
-            int z1,
-            int color,
-            int line) {
-        int a = Math.max(-32768, Math.min(32768, screenX(v, w, x0))),
-                b = Math.max(-32768, Math.min(32768, screenZ(v, h, z0))),
-                c = Math.max(-32768, Math.min(32768, screenX(v, w, x1))),
-                d = Math.max(-32768, Math.min(32768, screenZ(v, h, z1)));
-        g.fill(a, b, c, b + line, color);
-        g.fill(a, d - line, c, d, color);
-        g.fill(a, b, a + line, d, color);
-        g.fill(c - line, b, c, d, color);
-    }
-
     private void clearSearchTextures() {
         if (searchTexture != null) {
             searchTexture.close();
@@ -696,7 +749,7 @@ public final class MapRenderer {
                 TileWindow.visible(
                         v.x(), v.z(), v.scale(), width, height, next.resolution() / Tile.GRID);
         if (reduction == 1 || visible.count() > 512) {
-            drawSearchTexture(g, searchTexture, x, y, pixel, w, h);
+            drawSearchTexture(g, searchTexture, x, y, pixel, w, h, p.highlightOpacity);
             return;
         }
         // Large manual searches use a bounded overview plus exact sample pages when zoomed in.
@@ -734,20 +787,25 @@ public final class MapRenderer {
                     v.centerZ() + (key.blockZ() - v.z()) * v.scale(),
                     next.resolution() * v.scale(),
                     32,
-                    32);
+                    32,
+                    p.highlightOpacity);
         }
     }
 
     private static int searchRgba(Profile p, SearchOverlay overlay, int mask) {
         int rgb = overlay.layered() ? RockLayer.colour(mask) : p.highlightColor;
-        return (int) Math.round(p.highlightOpacity * 255) << 24
-                | ((rgb & 255) << 16)
-                | (rgb & 0xff00)
-                | ((rgb >>> 16) & 255);
+        return 0xff000000 | ((rgb & 255) << 16) | (rgb & 0xff00) | ((rgb >>> 16) & 255);
     }
 
     private static void drawSearchTexture(
-            GuiGraphics g, Texture texture, double x, double y, double pixel, int w, int h) {
+            GuiGraphics g,
+            Texture texture,
+            double x,
+            double y,
+            double pixel,
+            int w,
+            int h,
+            double opacity) {
         g.pose().pushPose();
         g.pose().translate(x, y, 0);
         g.pose().scale((float) pixel, (float) pixel, 1);
@@ -755,8 +813,10 @@ public final class MapRenderer {
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
+        RenderSystem.setShaderColor(1, 1, 1, (float) opacity);
         g.blit(texture.id, 0, 0, 0, 0, w, h, w, h);
         g.flush();
+        RenderSystem.setShaderColor(1, 1, 1, 1);
         g.pose().popPose();
     }
 
@@ -809,72 +869,43 @@ public final class MapRenderer {
             searchOutlines.clear();
             return;
         }
+        if (dev.ryan.tfcatlas.core.SearchStroke.width(search.resolution(), v.scale(), false) == 0) {
+            return;
+        }
         if (!searchOutlines.render(g, v, p, search, width, height)) {
             var b = lines(g);
             var pose = g.pose().last().pose();
             double halfW = (width / 2. + 8) / v.scale(), halfH = (height / 2. + 8) / v.scale();
             var edges = search.edgesIn(v.x() - halfW, v.z() - halfH, v.x() + halfW, v.z() + halfH);
-            for (int pass = 0; pass < 2; pass++) {
-                for (var edge : edges) {
-                    double x0 = v.centerX() + (edge.x0() - v.x()) * v.scale(),
-                            y0 = v.centerZ() + (edge.z0() - v.z()) * v.scale();
-                    double x1 = v.centerX() + (edge.x1() - v.x()) * v.scale(),
-                            y1 = v.centerZ() + (edge.z1() - v.z()) * v.scale();
-                    if (Math.max(x0, x1) < -4
-                            || Math.min(x0, x1) > width + 4
-                            || Math.max(y0, y1) < -4
-                            || Math.min(y0, y1) > height + 4) {
-                        continue;
-                    }
-                    segment(
-                            b,
-                            pose,
-                            x0,
-                            y0,
-                            x1,
-                            y1,
-                            pass == 0 ? 3 : 1.25,
-                            pass == 0
-                                    ? 0xD0182023
-                                    : 0xFF000000
-                                            | (search.layered()
-                                                    ? RockLayer.colour(edge.layerMask())
-                                                    : p.highlightColor));
+            double stroke =
+                    dev.ryan.tfcatlas.core.SearchStroke.width(
+                            search.resolution(), v.scale(), false);
+            for (var edge : edges) {
+                double x0 = v.centerX() + (edge.x0() - v.x()) * v.scale(),
+                        y0 = v.centerZ() + (edge.z0() - v.z()) * v.scale();
+                double x1 = v.centerX() + (edge.x1() - v.x()) * v.scale(),
+                        y1 = v.centerZ() + (edge.z1() - v.z()) * v.scale();
+                if (Math.max(x0, x1) < -4
+                        || Math.min(x0, x1) > width + 4
+                        || Math.max(y0, y1) < -4
+                        || Math.min(y0, y1) > height + 4) {
+                    continue;
                 }
+                segment(
+                        b,
+                        pose,
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        stroke,
+                        0xFF000000
+                                | (search.layered()
+                                        ? RockLayer.colour(edge.layerMask())
+                                        : p.highlightColor));
             }
+
             finishLines(b);
-        }
-        if (p.labels
-                && p.mapLabels.equals("Off")
-                && MapLabels.visible("Active layer", p.selected(), v.scale(), 1)) {
-            var font = Minecraft.getInstance().font;
-            List<double[]> used = new ArrayList<>();
-            for (var r : search.candidates()) {
-                double x = v.centerX() + (r.x() - v.x()) * v.scale(),
-                        y = v.centerZ() + (r.z() - v.z()) * v.scale();
-                if (x < 0
-                        || y < 0
-                        || x > width
-                        || y > height
-                        || used.stream()
-                                .anyMatch(a -> Math.hypot(x - a[0], y - a[1]) < p.labelSpacing)) {
-                    continue;
-                }
-                String text =
-                        p.selected() == Layer.ROCKS
-                                ? r.rocks()
-                                : MapLabels.text(p.selected(), r.cell());
-                if (!MapLabels.fitsCell(
-                        font.width(text), p.labelScale, v.scale(), search.resolution())) {
-                    continue;
-                }
-                g.pose().pushPose();
-                g.pose().translate(x, y, 0);
-                g.pose().scale((float) p.labelScale, (float) p.labelScale, 1);
-                g.drawCenteredString(font, text, 0, -4, 0xFF000000 | p.highlightColor);
-                g.pose().popPose();
-                used.add(new double[] {x, y});
-            }
         }
     }
 

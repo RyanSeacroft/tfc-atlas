@@ -12,11 +12,15 @@ import java.util.Map;
  */
 public final class SearchAreas {
     private int[] parent = new int[1024];
+    private long[] area = new long[1024];
+    private final Map<Tile.Key, int[]> savedLabels = new HashMap<>();
+    private boolean retainLabels;
     private int size = 1, count;
 
     private int create() {
         if (size == parent.length) {
             parent = Arrays.copyOf(parent, parent.length * 2);
+            area = Arrays.copyOf(area, parent.length);
         }
         parent[size] = size;
         count++;
@@ -38,12 +42,54 @@ public final class SearchAreas {
         int x = root(a), y = root(b);
         if (x != y) {
             parent[Math.max(x, y)] = Math.min(x, y);
+            area[Math.min(x, y)] += area[Math.max(x, y)];
             count--;
         }
     }
 
     public static int count(Map<Tile.Key, byte[]> masks) {
         return new SearchAreas().scan(masks);
+    }
+
+    /** Filter whole four-connected components, including those crossing tile boundaries. */
+    public static void retainMinimum(
+            Map<Tile.Key, byte[]> masks,
+            double minimum,
+            java.util.function.Consumer<Tile.Key> changed) {
+        retainRange(masks, minimum, Double.MAX_VALUE, changed);
+    }
+
+    /** Keep complete connected regions whose sampled area is within inclusive bounds. */
+    public static void retainRange(
+            Map<Tile.Key, byte[]> masks,
+            double minimum,
+            double maximum,
+            java.util.function.Consumer<Tile.Key> changed) {
+        if (minimum <= 0 && maximum == Double.MAX_VALUE) {
+            return;
+        }
+        SearchAreas regions = new SearchAreas();
+        regions.retainLabels = true;
+        regions.scan(masks);
+        for (var entry : regions.savedLabels.entrySet()) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.util.concurrent.CancellationException();
+            }
+            byte[] cells = masks.get(entry.getKey());
+            int[] labels = entry.getValue();
+            boolean removed = false;
+            for (int i = 0; i < cells.length; i++) {
+                if (labels[i] != 0
+                        && (regions.area[regions.root(labels[i])] < minimum
+                                || regions.area[regions.root(labels[i])] > maximum)) {
+                    cells[i] = 0;
+                    removed = true;
+                }
+            }
+            if (removed) {
+                changed.accept(entry.getKey());
+            }
+        }
     }
 
     private int scan(Map<Tile.Key, byte[]> masks) {
@@ -86,6 +132,15 @@ public final class SearchAreas {
                         }
                     }
                 }
+            }
+            long cellArea = (long) Tile.GRID * key.step() * Tile.GRID * key.step();
+            for (int label : labels) {
+                if (label != 0) {
+                    area[root(label)] += cellArea;
+                }
+            }
+            if (retainLabels) {
+                savedLabels.put(key, labels);
             }
             int[] above = previous.get(key.x()), bottom = new int[32], nextRight = new int[32];
             for (int i = 0; i < 32; i++) {

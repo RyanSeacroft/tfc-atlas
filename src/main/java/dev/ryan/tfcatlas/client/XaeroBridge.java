@@ -71,6 +71,7 @@ public final class XaeroBridge {
             double x,
             double z,
             double scale,
+            double zoom,
             String world,
             boolean overworld,
             boolean surface,
@@ -116,10 +117,12 @@ public final class XaeroBridge {
         Object key = call(dimension, "getDimId");
         String identity = call(world, "getMainId") + "/" + call(dimension, "getCurrentMultiworld");
         boolean overworld = key.equals(Level.OVERWORLD);
+        // Xaero displays destScale rounded to three decimals, independently of GUI scaling.
         return new View(
                 (double) field(map, "cameraX"),
                 (double) field(map, "cameraZ"),
                 (double) field(map, "scale") / Minecraft.getInstance().getWindow().getGuiScale(),
+                Math.round((double) field(map, "destScale") * 1000) / 1000.,
                 identity,
                 overworld,
                 ((Number) call(processor, "getCurrentCaveLayer")).intValue() == Integer.MAX_VALUE,

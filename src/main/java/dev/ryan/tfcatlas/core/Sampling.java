@@ -60,6 +60,11 @@ public final class Sampling {
         return Math.max(pixels, step / (32 / Tile.GRID));
     }
 
+    /** Fine colour pages stay at native detail while coarse overviews keep compact textures. */
+    public static int cachedTexturePixels(int step, double scale) {
+        return step <= 32 / Tile.GRID ? Tile.SIDE : texturePixels(step, scale);
+    }
+
     public static long estimatedSamples(int radius, int resolution) {
         long side = 2L * radius / resolution + 1;
         return side * side;
@@ -87,5 +92,16 @@ public final class Sampling {
                     "Auto search radius must not exceed " + MAX_SEARCH_RADIUS);
         }
         return value;
+    }
+
+    /** Prepare the next close-up quality just before its normal zoom threshold. */
+    public static int prefetchStep(int step, double scale) {
+        if (step == 4 && scale >= .2) {
+            return 2;
+        }
+        if (step == 2 && scale >= .4) {
+            return 1;
+        }
+        return Math.min(step, 32 / Tile.GRID);
     }
 }

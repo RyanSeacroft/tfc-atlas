@@ -17,7 +17,15 @@ final class AtlasTooltips {
                     && widget.visible
                     && widget.isMouseOver(mx, my)
                     && widget.getTooltip() != null) {
-                draw(g, widget.getTooltip(), mx, my, screen.width, screen.height);
+                draw(
+                        g,
+                        widget.getTooltip(),
+                        mx,
+                        my,
+                        screen.width,
+                        screen instanceof AtlasScreen atlas
+                                ? atlas.tooltipBottom()
+                                : screen.height);
                 return;
             }
         }

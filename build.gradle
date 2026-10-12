@@ -33,6 +33,7 @@ dependencies {
     modImplementation tfc_dependency
     modRuntimeOnly patchouli_dependency
     modRuntimeOnly xaero_dependency
+    modCompileOnly minimap_dependency
     modRuntimeOnly minimap_dependency
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     testImplementation 'com.google.code.gson:gson:2.10'

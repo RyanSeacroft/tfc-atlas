@@ -200,6 +200,32 @@ public final class CursorAndRetryTest {
 
     private static void regions() throws Exception {
         var settings = new Settings(false, 4000, 0, 0, 20000, 0, 20000, 0, null, .5f, .5f);
+        // Seed 16 reproduces the log's coordinate outside stock TFC's 100-grid window.
+        var clipped = new RegionGenerator(settings, new XoroshiroRandomSource(16));
+        check(
+                clipped.getOrCreateRegion(3501, -1199).maybeAt(3501, -1199) == null,
+                "The logged coordinate reproduces stock TFC's clipped-cell edge case");
+        var boundary = new AtlasRegionGenerator(settings, new XoroshiroRandomSource(16));
+        Region complete = boundary.getOrCreateRegion(3501, -1199);
+        var point = complete.maybeAt(3501, -1199);
+        check(
+                point != null
+                        && Float.isFinite(point.temperature)
+                        && Float.isFinite(point.rainfall),
+                "The expanded original generation pipeline returns a complete climate sample");
+        check(
+                point.land() == (boundary.continentNoise.noise(3501, -1199) > 4.4),
+                "Recovered land classification uses TFC's original seed and ownership");
+        check(
+                boundary.getOrCreateRegion(3501, -1199) == complete,
+                "The verified expanded region is reused instead of retried each minute");
+        for (int z = -1201; z <= -1197; z++) {
+            for (int x = 3499; x <= 3503; x++) {
+                check(
+                        boundary.getOrCreateRegionPoint(x, z) != null,
+                        "Neighbours across the formerly clipped edge stay available");
+            }
+        }
         var reference = new RegionGenerator(settings, new XoroshiroRandomSource(19));
         Region wrong = reference.getOrCreateRegion(1000, 1000);
         var rebuilds = new AtomicInteger();
