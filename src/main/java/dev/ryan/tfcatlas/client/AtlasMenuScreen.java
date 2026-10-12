@@ -13,7 +13,23 @@ abstract class AtlasMenuScreen extends Screen {
     public final void render(net.minecraft.client.gui.GuiGraphics g, int x, int y, float delta) {
         super.render(g, x, y, delta);
         renderContent(g, x, y, delta);
+        for (var child : children()) {
+            if (child instanceof net.minecraft.client.gui.components.Button button
+                    && button.getTooltip() == null
+                    && !button.getMessage().getString().isBlank()) {
+                button.setTooltip(
+                        net.minecraft.client.gui.components.Tooltip.create(
+                                Component.literal(
+                                        ButtonHelp.forLabel(button.getMessage().getString()))));
+            }
+        }
         AtlasTooltips.render(this, g, x, y);
+    }
+
+    @Override
+    public void renderBackground(
+            net.minecraft.client.gui.GuiGraphics g, int x, int y, float delta) {
+        g.fillGradient(0, 0, width, height, 0xC0101010, 0xD0101010);
     }
 
     protected void renderContent(
@@ -31,7 +47,8 @@ abstract class AtlasMenuScreen extends Screen {
     public boolean keyPressed(int key, int scan, int modifiers) {
         if ((key == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
                         || key == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER)
-                && (getFocused() instanceof CompactEditBox
+                && (getFocused() instanceof ListEditBox
+                        || getFocused() instanceof CompactEditBox
                         || getFocused() instanceof net.minecraft.client.gui.components.EditBox)) {
             setFocused(null);
             setDragging(false);
@@ -44,6 +61,10 @@ abstract class AtlasMenuScreen extends Screen {
     public boolean mouseClicked(double x, double y, int button) {
         boolean handled = super.mouseClicked(x, y, button);
         if (!handled && button == 0) {
+            setFocused(null);
+            setDragging(false);
+        }
+        if (button == 0 && getFocused() instanceof net.minecraft.client.gui.components.Button) {
             setFocused(null);
             setDragging(false);
         }

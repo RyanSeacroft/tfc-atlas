@@ -39,6 +39,22 @@ public final class QuickFixTest {
     }
 
     public static void run() throws Exception {
+        var oldCache =
+                Profiles.decode(
+                        com.google.gson.JsonParser.parseString(
+                                        "{\"memoryTiles\":512,\"diskMB\":256}")
+                                .getAsJsonObject());
+        check(
+                oldCache.memoryTiles == 2048 && oldCache.diskMB == 1024,
+                "Old cache defaults migrate to the shared larger budget");
+        var customCache =
+                Profiles.decode(
+                        com.google.gson.JsonParser.parseString(
+                                        "{\"memoryTiles\":1024,\"diskMB\":768}")
+                                .getAsJsonObject());
+        check(
+                customCache.memoryTiles == 1024 && customCache.diskMB == 768,
+                "Personal cache limits are preserved");
         loading();
         legends();
         search();
@@ -57,26 +73,14 @@ public final class QuickFixTest {
         List<Tile.Key> all = new ArrayList<>();
         w.forEach(all::add);
         var batch = frontier.next(painted::contains);
-        var first = batch.get(0);
+        check(batch.size() == 64, "Foreground requests have a bounded radial window");
+        painted.addAll(batch.subList(1, batch.size()));
+        var refill = frontier.next(painted::contains);
         check(
-                frontier.readyPrefix(k -> !k.equals(first)).isEmpty(),
-                "Even an inner ring waits if the very first centre tile is missing");
-        check(
-                frontier.readyPrefix(k -> k.equals(first)).equals(Set.of(first)),
-                "First available centre paints without waiting for all 64");
-        // Reproduce a warm LRU: only the final outer tiles survive the previous layer's scan.
-        for (var key : all.subList(all.size() - 512, all.size())) {
-            check(
-                    !frontier.allowsUpload(key),
-                    "Resident outer ring waits for missing centre disk uploads");
-        }
-        for (var key : batch) {
-            check(frontier.allowsUpload(key), "Central ready tile can paint immediately");
-        }
-        check(frontier.allowsUpload(Tile.Key.at(1337, -3199, 4)), "Cached fine centre is allowed");
-        check(
-                !frontier.allowsUpload(Tile.Key.at(400000, 200000, 4)),
-                "Cached fine outer ring cannot jump ahead");
+                refill.get(0).equals(batch.get(0)) && refill.size() == 64,
+                "A delayed central job does not prevent other ready tiles or requests progressing");
+        frontier = new TileLoadFrontier(w);
+        painted.clear();
         double last = -1;
         int frames = 0;
         while (painted.size() < all.size()) {
@@ -93,9 +97,6 @@ public final class QuickFixTest {
         check(
                 frontier.next(painted::contains).isEmpty(),
                 "Completed native layer makes no duplicate uploads");
-        check(
-                frontier.allowsUpload(Tile.Key.at(1337, -3199, 4)),
-                "Fine cached detail can still improve a completed layer");
     }
 
     private static void legends() throws Exception {

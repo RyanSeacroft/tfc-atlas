@@ -10,11 +10,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
 
 /**
  * Coverage comes from the same uploaded leaf/branch textures selected by GuiMap. Cached height
@@ -25,6 +23,7 @@ public final class ExploredMask {
     private record Cached(int version, int texture, List<Rect> pixels) {}
 
     private final Map<Object, Cached> cache = new LinkedHashMap<>(128, .75f, true);
+    private final MaskFramebuffer framebuffer = new MaskFramebuffer();
     private boolean active, previousEnabled;
     private int previousClear;
     private int[] previousFront, previousBack;
@@ -52,6 +51,7 @@ public final class ExploredMask {
     }
 
     public void clear() {
+        framebuffer.close();
         cache.clear();
         currentCoverage = List.of();
         coverageRevision++;
@@ -59,10 +59,6 @@ public final class ExploredMask {
 
     public long coverageRevision() {
         return coverageRevision;
-    }
-
-    public static void prepare() {
-        Minecraft.getInstance().getMainRenderTarget().enableStencil();
     }
 
     private List<Rect> pixels(Object texture) throws ReflectiveOperationException {
@@ -208,34 +204,26 @@ public final class ExploredMask {
     public void begin(
             GuiGraphics g, XaeroBridge.View view, int width, int height, boolean exploredOnly)
             throws ReflectiveOperationException {
-        if (!Minecraft.getInstance().getMainRenderTarget().isStencilEnabled()) {
-            throw new IllegalStateException("Terrain stencil unavailable; reopen the map");
-        }
         List<Rect> rects = coverage(view, width, height);
         g.flush();
-        if (GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING) == 0
-                || GL30.glGetFramebufferAttachmentParameteri(
-                                GL30.GL_DRAW_FRAMEBUFFER,
-                                GL30.GL_STENCIL_ATTACHMENT,
-                                GL30.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE)
-                        == GL11.GL_NONE
-                || GL30.glGetFramebufferAttachmentParameteri(
-                                GL30.GL_DRAW_FRAMEBUFFER,
-                                GL30.GL_STENCIL_ATTACHMENT,
-                                GL30.GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE)
-                        < 8) {
-            throw new IllegalStateException("Terrain stencil not attached; overlay hidden");
-        }
+        framebuffer.bind();
         previousEnabled = GL11.glIsEnabled(GL11.GL_STENCIL_TEST);
         previousClear = GL11.glGetInteger(GL11.GL_STENCIL_CLEAR_VALUE);
         previousFront = stencilState(false);
         previousBack = stencilState(true);
         GL11.glEnable(GL11.GL_STENCIL_TEST);
         active = true;
-        // Use the high bit; preserve the other seven bits and restore GL state afterward.
+        // Stencil belongs to Atlas; Xaero and Minecraft attachments remain untouched.
         GL11.glStencilMask(0x80);
         GL11.glClearStencil(0);
-        GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+        // Initialise our private depth too, in case a GUI render type enables depth testing.
+        double clearDepth = GL11.glGetDouble(GL11.GL_DEPTH_CLEAR_VALUE);
+        boolean depthWrite = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        RenderSystem.depthMask(true);
+        GL11.glClearDepth(1);
+        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_STENCIL_BUFFER_BIT);
+        GL11.glClearDepth(clearDepth);
+        RenderSystem.depthMask(depthWrite);
         GL11.glStencilFunc(GL11.GL_ALWAYS, 0x80, 0x80);
         GL11.glStencilOp(GL11.GL_REPLACE, GL11.GL_REPLACE, GL11.GL_REPLACE);
         RenderSystem.colorMask(false, false, false, false);
@@ -277,14 +265,18 @@ public final class ExploredMask {
 
     public void end(GuiGraphics g) {
         if (active) {
-            g.flush();
-            restore(GL11.GL_FRONT, previousFront);
-            restore(GL11.GL_BACK, previousBack);
-            GL11.glClearStencil(previousClear);
-            if (!previousEnabled) {
-                GL11.glDisable(GL11.GL_STENCIL_TEST);
+            try {
+                g.flush();
+            } finally {
+                framebuffer.unbind();
+                restore(GL11.GL_FRONT, previousFront);
+                restore(GL11.GL_BACK, previousBack);
+                GL11.glClearStencil(previousClear);
+                if (!previousEnabled) {
+                    GL11.glDisable(GL11.GL_STENCIL_TEST);
+                }
+                active = false;
             }
-            active = false;
         }
     }
 }

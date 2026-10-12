@@ -319,31 +319,30 @@ public final class DisplayTest {
                         "searchRockLayer");
         for (int width : new int[] {320, 426, 640, 854, 1280}) {
             for (int height : new int[] {240, 260, 360, 480}) {
-                var groups = SearchLayout.groups(width, height);
                 Set<String> keys = new HashSet<>();
-                List<Box> controls = new ArrayList<>();
-                for (var group : groups) {
-                    for (int i = 0; i < group.keys().size(); i++) {
-                        check(keys.add(group.keys().get(i)), "No duplicated search filter");
-                        Box field = group.field(i);
-                        check(
-                                field.y() >= 61
-                                        && field.bottom() + 1 < height - 72
-                                        && field.x() >= 12
-                                        && field.right() < width - 12
-                                        && field.width() >= 35
-                                        && field.height() >= 12,
-                                "Search field fits above actions at " + width + "x" + height);
-                        check(
-                                controls.stream()
-                                        .noneMatch(b -> b.padded(1).overlaps(field.padded(1))),
-                                "Compact fields and edit-box borders do not overlap");
-                        controls.add(field);
+                for (int section = 0; section < SearchLayout.SECTIONS.size(); section++) {
+                    List<Box> controls = new ArrayList<>();
+                    for (var group : SearchLayout.groups(width, height, false, section)) {
+                        for (int i = 0; i < group.keys().size(); i++) {
+                            check(keys.add(group.keys().get(i)), "No duplicated search filter");
+                            Box field = group.field(i);
+                            check(
+                                    field.y() >= 70
+                                            && field.bottom() + 1 < height - 72
+                                            && field.x() >= 12
+                                            && field.right() < width - 12
+                                            && field.width() >= 35
+                                            && field.height() >= 12,
+                                    "Search field fits inside its section");
+                            check(
+                                    controls.stream()
+                                            .noneMatch(b -> b.padded(1).overlaps(field.padded(1))),
+                                    "Fields do not overlap within a section");
+                            controls.add(field);
+                        }
                     }
                 }
-                check(
-                        keys.equals(expected),
-                        "All search parameters remain on one page at " + width + "x" + height);
+                check(keys.containsAll(expected), "All previous filters remain accessible");
             }
         }
         Box safe = new Box(32, 40, 300, 200), start = new Box(50, 70, 100, 40);
@@ -387,7 +386,7 @@ public final class DisplayTest {
                         && loaded.keyX == -1
                         && loaded.infoY == -1
                         && loaded.keyScale == .5
-                        && loaded.infoScale == .5
+                        && loaded.infoScale == dev.ryan.tfcatlas.core.DefaultHud.INFO_SCALE
                         && loaded.keyWidth == 0
                         && loaded.keyHeight == 0,
                 "Reset UI restores automatic placement and default dimensions");

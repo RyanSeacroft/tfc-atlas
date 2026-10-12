@@ -141,7 +141,7 @@ public final class SearchPerformanceTest {
                                     x + (side == 2 ? -1 : side == 3 ? 1 : 0),
                                     z + (side == 0 ? -1 : side == 1 ? 1 : 0),
                                     step);
-                    if (a == b || !layered && b != 0) {
+                    if (b != 0) {
                         continue;
                     }
                     out.put(

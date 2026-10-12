@@ -31,6 +31,7 @@ dependencies {
     implementation tfc_dependency
     runtimeOnly patchouli_dependency
     runtimeOnly xaero_dependency
+    compileOnly minimap_dependency
     runtimeOnly minimap_dependency
     testImplementation 'com.google.code.gson:gson:2.10.1'
 }

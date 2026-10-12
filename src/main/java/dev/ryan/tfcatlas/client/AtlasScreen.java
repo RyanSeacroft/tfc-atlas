@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -34,106 +33,117 @@ public final class AtlasScreen extends AtlasMenuScreen {
         return new Option(key, label, help, choices);
     }
 
-    private static final String[] TABS = {
-        "World", "Search", "Results", "Display", "Worldgen", "Cache"
-    };
+    public static final int SEARCH = 0, RESULTS = 1, DISPLAY = 2, WORLDGEN = 3, CACHE = 4;
+    private static final String[] TABS = {"Search", "Results", "Display", "Worldgen", "Cache"};
     private static final Option[][] OPTIONS = {
         {
             o(
-                    "seed",
-                    "Numeric world seed",
-                    "Leave blank for verified TFC multiplayer detection. Manual multiplayer seeds are used only for this session and are not saved."),
-            o(
-                    "mode",
-                    "Coverage",
-                    "Full Map can show TFC in unexplored terrain. Explored Only restricts TFC rendering to discovered terrain. Saved Xaero maps stay untouched.",
-                    "Full map",
-                    "Explored only"),
-            o(
-                    "useLocalSettings",
-                    "Use singleplayer settings",
-                    "Read the actual generator settings in singleplayer; multiplayer uses the Worldgen tab.",
-                    "true",
-                    "false"),
-            o(
-                    "layer",
-                    "Data layer",
-                    "All layers share the cached samples.",
-                    Arrays.stream(Layer.values()).map(Enum::name).toArray(String[]::new)),
-            o(
-                    "spawn",
-                    "Spawn search area",
-                    "Gold square marks the configured search bounds, not a promised spawn point.",
-                    "true",
-                    "false")
-        },
-        {
-            o(
-                    "atlasEnabled",
-                    "TFC Atlas",
-                    "Turns Atlas rendering on or off immediately without changing Xaero's stored map.",
-                    "true",
-                    "false"),
-            o(
                     "climateZones",
-                    "Climate zones: names separated by commas",
-                    "TFC sea-level climate names, such as Hot Desert or Oceanic. Tab completes each comma-separated name. Blank = any."),
+                    "Climate zones",
+                    "Enter climate-zone names or groups separated by commas or new lines, such as Hot Desert or Tropical zones. Press Tab to complete a name or group. Leave blank to allow any zone."),
             o(
                     "minGroundwater",
                     "Minimum groundwater potential (mm)",
-                    "At least this much annual rainfall plus river groundwater before elevation reduction. High river banks may have less actual water. Blank = no minimum."),
+                    "Enter the minimum groundwater potential in mm. For example, 300 requires at least 300 mm. Leave blank for no minimum. This includes rainfall and river contribution before elevation reduction."),
             o(
                     "maxGroundwater",
                     "Maximum groundwater potential (mm)",
-                    "Upper bound on potential, not guaranteed surface groundwater. Blank = no maximum."),
+                    "Enter the maximum groundwater potential in mm. Leave blank for no maximum. Potential includes rainfall and river contribution before elevation reduction; actual surface water can be lower."),
+            o(
+                    "minRiver",
+                    "Minimum river distance (blocks)",
+                    "Enter the minimum distance to a predicted river bank in blocks (0–8192). For example, 100 excludes locations nearer than 100 blocks. Leave blank for no minimum."),
+            o(
+                    "maxRiver",
+                    "Maximum river distance (blocks)",
+                    "Enter the maximum distance to a predicted river bank in blocks (0–8192). For example, 100 requires a river within 100 blocks. Leave blank for no maximum."),
+            o(
+                    "minOcean",
+                    "Minimum ocean distance (blocks)",
+                    "Enter the minimum distance to the predicted ocean coastline in blocks (0–8192). Leave blank for no minimum. Coastlines are estimated on a 128-block regional grid."),
+            o(
+                    "maxOcean",
+                    "Maximum ocean distance (blocks)",
+                    "Enter the maximum distance to the predicted ocean coastline in blocks (0–8192). Leave blank for no maximum. Coastlines are estimated on a 128-block regional grid."),
+            o(
+                    "minSlope",
+                    "Minimum terrain steepness (degrees)",
+                    "Enter the minimum terrain steepness in degrees (0–90). Leave blank for no minimum. 0 is flat; 45 is one block of rise per horizontal block. Prediction samples eight directions over 32 blocks."),
+            o(
+                    "maxSlope",
+                    "Maximum terrain steepness (degrees)",
+                    "Enter the maximum terrain steepness in degrees (0–90). Use a small value for flatter terrain. Leave blank for no maximum. Prediction samples eight directions over 32 blocks."),
+            o(
+                    "minInland",
+                    "Minimum inlandness index",
+                    "Enter the minimum TFC inlandness index. Leave blank for no minimum. This is a regional index, not a distance in blocks; use ocean distance for that."),
+            o(
+                    "maxInland",
+                    "Maximum inlandness index",
+                    "Enter the maximum TFC inlandness index. Leave blank for no maximum. This is a regional index, not a distance in blocks; use ocean distance for that."),
+            o(
+                    "minArea",
+                    "Minimum matching area (square blocks)",
+                    "Enter the minimum matching region area in square blocks. For example, 4096 is the area of a 64×64 square. Leave blank for no minimum. Connected samples define each region inside the radius; live highlights are provisional."),
+            o(
+                    "maxArea",
+                    "Maximum matching area (square blocks)",
+                    "Enter the largest matching region in square blocks. Leave blank for no maximum. The whole connected region inside the search radius is measured; live highlights are provisional."),
+            o(
+                    "soils",
+                    "Dirt types",
+                    "Enter soil names separated by commas. Press Tab to complete a name. Leave blank to allow any soil. These are regional predictions, not farm nutrients or guaranteed surface blocks."),
             o(
                     "rocks",
-                    "Rocks: names separated by commas",
-                    "Examples: granite, gneiss. Blank = any. Tab completes each comma-separated name."),
+                    "Rocks",
+                    "Enter rock names separated by commas or new lines, such as granite, gneiss. Enter a group name such as Igneous rocks to select that family. Press Tab to complete a name or group. Leave blank to allow any rock."),
             o(
                     "biomes",
-                    "Biomes: names separated by commas",
-                    "Examples: plains, rolling hills. Blank = any. Tab completes each comma-separated name."),
+                    "Biomes",
+                    "Enter biome names separated by commas or new lines, such as plains, rolling hills. Enter a group name such as Mountain biomes to select that family. Press Tab to complete a name or group. Leave blank to allow any biome."),
+            o("biomeGroups", "Biome groups", "Optional shortcuts resolved for the current world."),
+            o("rockGroups", "Rock groups", "Optional rock-family shortcuts."),
+            o("climateGroups", "Climate groups", "Optional climate-family shortcuts."),
             o(
                     "categories",
                     "Rock regions",
-                    "Surface geology: Oceanic, Volcanic, Land or Uplift. All can have deeper strata, so Uplift + Bottom is valid. Commas = any listed region; blank = any."),
+                    "Enter rock-region names separated by commas: Oceanic, Volcanic, Land, Uplift. Press Tab to complete a name. Leave blank to allow any region. Uplift can have bottom-layer rocks."),
             o(
                     "feature",
                     "Terrain features",
-                    "Comma-separated: Land, Ocean, River, Lake, Mountain, Coast. Blank = any; Tab completes a name."),
+                    "Enter terrain-feature names separated by commas: Land, Ocean, River, Lake, Mountain, Coast. Press Tab to complete a name. Leave blank to allow any feature."),
             o(
                     "minRain",
                     "Minimum rainfall (mm)",
-                    "Use 20 here for at least 20 mm of rainfall. Blank = no minimum."),
+                    "Enter the minimum annual rainfall in mm. For example, 20 requires at least 20 mm. Leave blank for no minimum."),
             o(
                     "maxRain",
                     "Maximum rainfall (mm)",
-                    "Use 200 here for at most 200 mm. Blank = no maximum."),
+                    "Enter the maximum annual rainfall in mm. For example, 200 allows at most 200 mm. Leave blank for no maximum."),
             o(
                     "minTemp",
                     "Minimum annual temperature (°C)",
-                    "Use 20 here for at least 20 °C. Blank = no minimum."),
+                    "Enter the minimum annual temperature in °C. For example, 20 requires at least 20 °C. Leave blank for no minimum. This is a sea-level annual mean."),
             o(
                     "maxTemp",
                     "Maximum annual temperature (°C)",
-                    "Annual mean, not current weather or elevation-adjusted temperature. Blank = no maximum."),
+                    "Enter the maximum annual temperature in °C. For example, 20 allows at most 20 °C. Leave blank for no maximum. This is a sea-level annual mean."),
             o(
                     "radius",
                     "Search radius (blocks)",
-                    "Default: 16,384 blocks. Auto: 128 to 262,144. Expensive searches ask for confirmation; reducing radius lowers their cost. Manual sampling removes the radius cap. Searches stop at the world border."),
+                    "Enter the search radius in blocks. Default: 16384. Auto sampling supports 128–262144; manual sampling allows larger radii after confirmation. Smaller radii cost less; the world border still applies."),
             o(
                     "searchX",
                     "Search centre X",
-                    "X coordinate used only when Coordinates is selected. Range: -29,999,984 to 29,999,984."),
+                    "Enter the search centre X coordinate (-29999984 to 29999984). This is used only when the centre button is set to Coordinates."),
             o(
                     "searchZ",
                     "Search centre Z",
-                    "Z coordinate used only when Coordinates is selected. Range: -29,999,984 to 29,999,984."),
+                    "Enter the search centre Z coordinate (-29999984 to 29999984). This is used only when the centre button is set to Coordinates."),
             o(
                     "resultSpacing",
                     "Candidate separation (blocks)",
-                    "Minimum straight-line X/Z distance between each of the five closest listed matches. Does not change highlighted areas or the distinct-area count."),
+                    "Enter the minimum distance between the five closest listed matches in blocks. This does not change highlights or the total distinct-area count."),
             o(
                     "highlights",
                     "Highlight matches",
@@ -143,11 +153,11 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "minY",
                     "Minimum surface Y",
-                    "Predicted ground height in blocks. Use 100 for terrain at Y 100 or higher. TFC base-height prediction at the selected 16–512-block sample spacing; local terrain can differ."),
+                    "Enter the minimum predicted surface Y (-64 to 319). For example, 100 requires ground at Y 100 or higher. Leave blank for no minimum. Rock layers are selected separately."),
             o(
                     "maxY",
                     "Maximum surface Y",
-                    "Inclusive maximum predicted ground Y. Normal world range: -64 to 319. This filters terrain height; choose a rock layer separately for host rocks."),
+                    "Enter the maximum predicted surface Y (-64 to 319). For example, 200 allows ground at Y 200 or lower. Leave blank for no maximum. Rock layers are selected separately."),
             o(
                     "precision",
                     "Sampling (blocks)",
@@ -162,7 +172,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "searchRockLayer",
                     "Rock layer",
-                    "Top / Middle / Bottom select geological strata, not fixed Y levels. Any layer checks all three. Dikes finds predicted granite, diorite or gabbro intrusions, including buried ones; use fine sampling. Not confirmed ore.",
+                    "Top / Middle / Bottom select geological strata, not fixed Y levels. Any layer checks all three. Dikes finds predicted granite, diorite or gabbro intrusions, including buried ones; use fine sampling.",
                     "Top",
                     "Middle",
                     "Bottom",
@@ -171,6 +181,29 @@ public final class AtlasScreen extends AtlasMenuScreen {
         },
         {},
         {
+            o(
+                    "atlasEnabled",
+                    "TFC Atlas",
+                    "Turns Atlas rendering on or off immediately without changing Xaero's stored map.",
+                    "true",
+                    "false"),
+            o(
+                    "mode",
+                    "Coverage",
+                    "Full Map can show TFC in unexplored terrain. Explored Only restricts TFC rendering to discovered terrain. Saved Xaero maps stay untouched.",
+                    "Full map",
+                    "Explored only"),
+            o(
+                    "layer",
+                    "Data layer",
+                    "All layers share the cached samples.",
+                    Arrays.stream(Layer.values()).map(Enum::name).toArray(String[]::new)),
+            o(
+                    "spawn",
+                    "Show spawn region",
+                    "Show the actual world spawn as a small white marker and label at zoom 0.02 or higher.",
+                    "true",
+                    "false"),
             o(
                     "climateContinents",
                     "Continent outlines",
@@ -210,40 +243,43 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "true",
                     "false"),
             o(
-                    "accessible",
-                    "Alternate categorical palette",
-                    "An alternate palette; names remain the reliable way to identify many categories.",
+                    "minimapHighlights",
+                    "Search results on minimap",
+                    "Show the same live search regions on Xaero's Minimap, beneath its symbols. Requires Xaero's Minimap in normal framebuffer mode; Safe Mode is not supported. No map data is changed.",
                     "true",
                     "false"),
-            o(
-                    "labels",
-                    "Candidate labels",
-                    "Names on the active Rocks/Biomes layer when their region has room.",
-                    "true",
-                    "false"),
-            o(
-                    "labelSpacing",
-                    "Candidate label spacing",
-                    "50 to 400 GUI pixels for search candidate labels. Region names are positioned by their visible shape."),
             o(
                     "highlightColor",
                     "Highlight colour (hex)",
-                    "Six hexadecimal digits, for example FFFF55. Used for searches without a rock filter; rock searches use layer colours."),
+                    "Enter a six-digit hexadecimal colour, such as FFFF55. Searches with rock filters use rock-layer colours instead."),
             o(
                     "highlightOpacity",
                     "Highlight strength (0–1)",
-                    "Strength of the search tint. Rock-filter searches use the Top / Middle / Bottom match colours."),
-            o("outline", "Spawn outline width (pixels)", "0 to 5."),
+                    "Enter the search highlight strength from 0 to 1. For example, 0.5 gives half strength. Rock searches retain their layer colours."),
             o(
-                    "toolbarX",
-                    "Toolbar preferred X",
-                    "Placement avoids native controls and fixed screen margins."),
+                    "highlights",
+                    "Highlight matches",
+                    "Show outlined regions with a highlighted interior as matches are found, including while the search runs.",
+                    "false",
+                    "true"),
             o(
-                    "toolbarY",
-                    "Toolbar preferred Y",
-                    "Preferred position; adjusted when a native control is in the way.")
+                    "showCriteria",
+                    "Current search panel",
+                    "Show the submitted search criteria on the map. Hiding this panel keeps the search and its highlights.",
+                    "true",
+                    "false"),
         },
         {
+            o(
+                    "seed",
+                    "Numeric world seed",
+                    "Enter the numeric world seed, or leave blank for automatic detection. Multiplayer seeds are used only for this session and are not saved."),
+            o(
+                    "useLocalSettings",
+                    "Use singleplayer settings",
+                    "Read the actual generator settings in singleplayer; multiplayer uses the Worldgen tab.",
+                    "true",
+                    "false"),
             o(
                     "finiteContinents",
                     "Finite continents",
@@ -253,23 +289,35 @@ public final class AtlasScreen extends AtlasMenuScreen {
             o(
                     "temperatureScale",
                     "Temperature scale (blocks)",
-                    "Default 20000. Use zero for a constant climate axis."),
-            o("rainfallScale", "Rainfall scale (blocks)", "Default 20000."),
+                    "Enter the temperature scale in blocks. Default: 20000. Use 0 for a constant climate axis. Match the world generator settings."),
+            o(
+                    "rainfallScale",
+                    "Rainfall scale (blocks)",
+                    "Enter the rainfall scale in blocks. Default: 20000. Use 0 for a constant climate axis. Match the world generator settings."),
             o(
                     "temperatureConstant",
                     "Constant temperature input (-1–1)",
-                    "Used only when temperature scale is zero."),
+                    "Enter the constant temperature input (-1 to 1). This is used only when temperature scale is 0. Match the world generator settings."),
             o(
                     "rainfallConstant",
                     "Constant rainfall input (-1–1)",
-                    "Used only when rainfall scale is zero."),
-            o("continentalness", "Continentalness (0–1)", "Default 0.5. Must match the server."),
-            o("spawnX", "Spawn search centre X", "Default 0."),
-            o("spawnZ", "Spawn search centre Z", "Default 0."),
+                    "Enter the constant rainfall input (-1 to 1). This is used only when rainfall scale is 0. Match the world generator settings."),
+            o(
+                    "continentalness",
+                    "Continentalness (0–1)",
+                    "Enter continentalness from 0 to 1. Default: 0.5. Match the world generator settings."),
+            o(
+                    "spawnX",
+                    "Spawn search centre X",
+                    "Enter the spawn search centre X coordinate in blocks. Default: 0. Match the world generator settings."),
+            o(
+                    "spawnZ",
+                    "Spawn search centre Z",
+                    "Enter the spawn search centre Z coordinate in blocks. Default: 0. Match the world generator settings."),
             o(
                     "spawnRadius",
                     "Spawn search half-width",
-                    "Default 4000 blocks. The search uses a square spiral.")
+                    "Enter the spawn search half-width in blocks. Default: 4000. This defines a square search area; match the world generator settings.")
         },
         {
             o(
@@ -278,19 +326,60 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     "Versioned by world, seed, TFC version and settings.",
                     "true",
                     "false"),
-            o("memoryTiles", "Memory tile limit", "64 to 4096. Each tile stores all layers."),
+            o(
+                    "memoryTiles",
+                    "Memory tile limit",
+                    "Enter the maximum cached tile count (64–4096). Each tile stores every available layer. Larger limits use more memory."),
             o(
                     "diskMB",
                     "Disk limit per seed (MiB)",
-                    "16 to 8192. Older tiles are removed automatically.")
+                    "Enter the disk cache limit per seed in MiB (16–8192). Older tiles are removed when the limit is reached."),
+            o(
+                    "exportPixels",
+                    "PNG width / height (pixels)",
+                    "Choose the square image size. Larger images take longer to export.",
+                    "256",
+                    "512",
+                    "1024"),
+            o(
+                    "exportStep",
+                    "PNG sampling (blocks per pixel)",
+                    "Choose the distance between PNG samples. Image width in blocks equals pixels times sampling.",
+                    "16",
+                    "32",
+                    "64",
+                    "128",
+                    "256"),
+            o(
+                    "exportCenter",
+                    "PNG centre",
+                    "Choose the current map focus or the player position as the exported image centre.",
+                    "Map focus",
+                    "Player"),
+            o(
+                    "exportTransparentOcean",
+                    "Transparent ocean in PNG",
+                    "Export ocean pixels with transparency. Land colours and saved map data are unchanged.",
+                    "false",
+                    "true"),
+            o(
+                    "exportMetadata",
+                    "PNG information file",
+                    "Save a small text file with the image coordinates, layer and block scale. Multiplayer seeds remain hidden.",
+                    "true",
+                    "false")
         }
     };
     private final Screen parent;
     private final Map<String, String> values = new LinkedHashMap<>();
     private final List<Runnable> readers = new ArrayList<>();
     private int tab;
-    private boolean resetHud;
+    private boolean resetHud, resetAll;
     private String message = "", presetName = "My search";
+    private String loadedPreset = "";
+    private long presetLoadedAt;
+    private int searchSection, displaySection, cacheSection;
+    private final Map<Button, SearchQuery.Result> resultButtons = new LinkedHashMap<>();
     private SearchQuery.Result selected;
     private List<SearchQuery.Result> shown = List.of();
 
@@ -304,7 +393,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     Object v = Profile.class.getField(option.key).get(AtlasClient.profile);
                     values.put(
                             option.key,
-                            option.key.equals("highlightColor")
+                            Set.of("highlightColor").contains(option.key)
                                     ? String.format("%06X", v)
                                     : AtlasClient.profile.searchValue(option.key));
                 } catch (Exception ignored) {
@@ -313,6 +402,44 @@ public final class AtlasScreen extends AtlasMenuScreen {
         }
         values.put("searchOrigin", AtlasClient.profile.searchOrigin);
         values.computeIfPresent("climateZones", (key, value) -> ClimateZones.displayList(value));
+        mirrorGroupFields();
+    }
+
+    private String groupTitle(String key) {
+        return switch (key) {
+            case "biomes" -> "Biomes";
+            case "rocks" -> "Rocks";
+            case "climateZones" -> "Climate zones";
+            default -> key;
+        };
+    }
+
+    private void mirrorGroupFields() {
+        for (String key : java.util.List.of("biomes", "rocks", "climateZones")) {
+            String legacyKey = groupKey(key), legacy = values.getOrDefault(legacyKey, "");
+            String names = values.getOrDefault(key, "");
+            var catalog = groupCatalog(key);
+            try {
+                if (key.equals("biomes") && SearchQuery.names(legacy).contains("all")) {
+                    names =
+                            names
+                                    + ","
+                                    + String.join(
+                                            ",", WorldBiomeGroups.current().resolve("", legacy));
+                    legacy = "";
+                }
+                if (!legacy.isBlank()) {
+                    values.put(
+                            key,
+                            new dev.ryan.tfcatlas.core.GroupSelection(catalog, legacy, names)
+                                    .text());
+                }
+            } catch (IllegalArgumentException unavailable) {
+                // Leave unsupported saved names visible so the player can correct them.
+                values.put(key, names + (names.isBlank() || legacy.isBlank() ? "" : ", ") + legacy);
+            }
+            values.put(legacyKey, "");
+        }
     }
 
     public void syncLayer() {
@@ -349,17 +476,80 @@ public final class AtlasScreen extends AtlasMenuScreen {
         int tw = content / TABS.length;
         for (int t = 0; t < TABS.length; t++) {
             final int next = t;
-            button(TABS[t], left + t * tw, 25, tw - 2, () -> navigate(next)).active = t != tab;
+            var navigation = button(TABS[t], left + t * tw, 25, tw - 2, () -> navigate(next));
+            navigation.active = t != tab;
+            navigation.setTooltip(
+                    Tooltip.create(
+                            Component.literal(
+                                    "Open " + TABS[t].toLowerCase(Locale.ROOT) + " settings.")));
         }
-        if (tab == 2) {
+        if (tab == RESULTS) {
             initResults(left, content);
             return;
         }
-        Option[] options = OPTIONS[tab];
-        if (tab == 1) {
+        Option[] options = displayedOptions();
+        if (tab == DISPLAY) {
+            int sectionWidth = content / dev.ryan.tfcatlas.core.DisplayLayout.SECTIONS.size();
+            for (int i = 0; i < dev.ryan.tfcatlas.core.DisplayLayout.SECTIONS.size(); i++) {
+                final int section = i;
+                smallButton(
+                                        dev.ryan.tfcatlas.core.DisplayLayout.SECTIONS.get(i),
+                                        left + i * sectionWidth,
+                                        49,
+                                        sectionWidth - 2,
+                                        18,
+                                        () -> {
+                                            read();
+                                            displaySection = section;
+                                            refresh();
+                                        })
+                                .active =
+                        displaySection != i;
+            }
+        }
+        if (tab == CACHE) {
+            int half = content / 2;
+            for (int i = 0; i < 2; i++) {
+                final int section = i;
+                smallButton(
+                                        i == 0 ? "Storage" : "PNG export",
+                                        left + i * half,
+                                        49,
+                                        half - 2,
+                                        18,
+                                        () -> {
+                                            read();
+                                            cacheSection = section;
+                                            refresh();
+                                        })
+                                .active =
+                        cacheSection != i;
+            }
+        }
+        if (tab == SEARCH) {
+            int sectionWidth = content / SearchLayout.SECTIONS.size();
+            for (int i = 0; i < SearchLayout.SECTIONS.size(); i++) {
+                final int section = i;
+                smallButton(
+                                        SearchLayout.SECTIONS.get(i),
+                                        left + i * sectionWidth,
+                                        49,
+                                        sectionWidth - 2,
+                                        18,
+                                        () -> {
+                                            read();
+                                            searchSection = section;
+                                            refresh();
+                                        })
+                                .active =
+                        searchSection != i;
+            }
             for (var group :
                     SearchLayout.groups(
-                            width, height, values.get("searchOrigin").equals("Coordinates"))) {
+                            width,
+                            height,
+                            values.get("searchOrigin").equals("Coordinates"),
+                            searchSection)) {
                 for (int i = 0; i < group.keys().size(); i++) {
                     String key = group.keys().get(i);
                     Option option =
@@ -368,17 +558,61 @@ public final class AtlasScreen extends AtlasMenuScreen {
                                     .findFirst()
                                     .orElseThrow();
                     var box = group.field(i);
-                    addOption(option, box.x(), box.y(), box.width(), box.height());
+                    if (groupKey(key) != null) {
+                        int groupWidth = 40;
+                        addOption(
+                                option,
+                                box.x(),
+                                box.y(),
+                                box.width() - groupWidth - 3,
+                                box.height());
+                        var groupButton =
+                                smallButton(
+                                        "Groups",
+                                        box.x() + box.width() - groupWidth,
+                                        box.y(),
+                                        groupWidth,
+                                        Math.min(16, box.height()),
+                                        () -> {
+                                            read();
+                                            minecraft.setScreen(
+                                                    new SearchGroupScreen(
+                                                            this,
+                                                            key,
+                                                            groupTitle(key),
+                                                            values.getOrDefault(groupKey(key), ""),
+                                                            values.get(key),
+                                                            groupCatalog(key),
+                                                            key.equals("biomes")
+                                                                    ? WorldBiomeGroups.kaolinHelp()
+                                                                    : "Selected groups and individual names are combined. Other search fields still apply.",
+                                                            (groups, names) -> {
+                                                                values.put(groupKey(key), groups);
+                                                                values.put(key, names);
+                                                            }));
+                                        });
+                        groupButton.setTooltip(
+                                Tooltip.create(
+                                        Component.literal(
+                                                "Select groups or individual entries. The selections mirror this field.")));
+                    } else {
+                        addOption(option, box.x(), box.y(), box.width(), box.height());
+                    }
                 }
             }
         } else {
-            var fields = SettingsLayout.fields(width, height, options.length);
+            var fields =
+                    SettingsLayout.fields(
+                            width,
+                            height,
+                            options.length,
+                            (tab == DISPLAY || tab == CACHE) ? 74 : 52);
             for (int n = 0; n < options.length; n++) {
                 var box = fields.get(n).input();
                 addOption(options[n], box.x(), box.y(), box.width(), box.height());
             }
         }
-        if (tab == 1) {
+        if (tab == SEARCH) {
             var actions = SearchLayout.actions(width, height);
             var origin = actions.get(0);
             button(
@@ -394,6 +628,9 @@ public final class AtlasScreen extends AtlasMenuScreen {
                                             case "World spawn" -> "Coordinates";
                                             default -> "Player";
                                         });
+                                if (values.get("searchOrigin").equals("Coordinates")) {
+                                    searchSection = 3;
+                                }
                                 refresh();
                             })
                     .setTooltip(
@@ -419,53 +656,56 @@ public final class AtlasScreen extends AtlasMenuScreen {
                             Tooltip.create(
                                     Component.literal(
                                             "Clear all search filters and current results; reset radius, sampling, separation and centre. Your saved presets are kept.")));
-        } else if (tab == 5) {
-            button(
-                    "Clear cache",
-                    left + 60,
+        } else if (tab == CACHE) {
+            outlinedButton(
+                    cacheSection == 0 ? "Clear cache" : "Export PNG",
+                    left,
                     height - 66,
-                    Math.min(130, (content - 65) / 2),
-                    this::clearCache);
-            button(
-                    "Export PNG",
-                    left + 64 + Math.min(130, (content - 65) / 2),
-                    height - 66,
-                    Math.min(124, (content - 65) / 2),
-                    this::export);
-        } else if (tab == 3) {
-            button(
-                    "Edit colours",
-                    left + 60,
-                    height - 66,
-                    100,
-                    () -> {
-                        if (apply()) {
-                            minecraft.setScreen(new LegendScreen(this));
-                        }
-                    });
-            button(
-                    "Reset UI",
-                    left + 164,
-                    height - 66,
-                    75,
-                    () -> {
-                        read();
-                        values.put("toolbarX", "32");
-                        values.put("toolbarY", "40");
-                        resetHud = true;
-                        readers.clear();
-                        refresh();
-                    });
-        } else if (tab == 4) {
-            button(
+                    Math.min(160, content),
+                    cacheSection == 0 ? this::clearCache : this::export);
+        } else if (tab == DISPLAY) {
+            if (displaySection == 2) {
+                outlinedButton(
+                        "Edit layer colours",
+                        left,
+                        height - 66,
+                        Math.min(170, content),
+                        () -> {
+                            if (apply()) {
+                                minecraft.setScreen(new LegendScreen(this));
+                            }
+                        });
+            } else if (displaySection == 1) {
+                int buttonWidth = Math.min(190, content);
+                outlinedButton(
+                        "Reset map panel positions",
+                        left,
+                        height - 66,
+                        buttonWidth,
+                        () -> {
+                            read();
+                            resetHud = true;
+                            readers.clear();
+                            refresh();
+                        });
+            } else if (displaySection == 0) {
+                outlinedButton(
+                        "Reset all Atlas settings",
+                        left,
+                        height - 66,
+                        Math.min(190, content),
+                        this::confirmResetSettings);
+            }
+        } else if (tab == WORLDGEN) {
+            outlinedButton(
                     "Reset worldgen",
-                    left + 60,
+                    left,
                     height - 66,
                     110,
                     () -> {
                         read();
                         Profile defaults = new Profile();
-                        for (Option o : OPTIONS[4]) {
+                        for (Option o : OPTIONS[WORLDGEN]) {
                             try {
                                 values.put(
                                         o.key,
@@ -478,27 +718,65 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         refresh();
                     });
         }
-        button(
-                "Apply",
-                left,
-                height - 27,
-                70,
-                () -> {
-                    if (apply()) {
-                        message = "Saved. Return to the map to view the result.";
-                    }
-                });
-        button(
-                "Back to map",
-                left + 74,
-                height - 27,
-                100,
-                () -> {
-                    if (apply()) {
-                        minecraft.setScreen(parent);
-                    }
-                });
-        button("Cancel", left + 178, height - 27, 65, () -> minecraft.setScreen(parent));
+        button("Back to map", left, height - 27, Math.min(140, content), this::onClose);
+    }
+
+    private Option[] displayedOptions() {
+        if (tab == CACHE) {
+            return Arrays.stream(OPTIONS[CACHE])
+                    .filter(option -> option.key.startsWith("export") == (cacheSection == 1))
+                    .toArray(Option[]::new);
+        }
+        if (tab != DISPLAY) {
+            return OPTIONS[tab];
+        }
+        var keys = dev.ryan.tfcatlas.core.DisplayLayout.keys(displaySection);
+        return keys.stream()
+                .map(
+                        key ->
+                                Arrays.stream(OPTIONS[DISPLAY])
+                                        .filter(option -> option.key.equals(key))
+                                        .findFirst()
+                                        .orElseThrow())
+                .toArray(Option[]::new);
+    }
+
+    private void confirmResetSettings() {
+        read();
+        minecraft.setScreen(
+                new net.minecraft.client.gui.screens.ConfirmScreen(
+                        confirmed -> {
+                            if (confirmed) {
+                                Profile defaults = new Profile();
+                                for (Option[] options : OPTIONS) {
+                                    for (Option option : options) {
+                                        try {
+                                            Object value =
+                                                    Profile.class
+                                                            .getField(option.key)
+                                                            .get(defaults);
+                                            values.put(
+                                                    option.key,
+                                                    Set.of("highlightColor").contains(option.key)
+                                                            ? String.format("%06X", value)
+                                                            : defaults.searchValue(option.key));
+                                        } catch (ReflectiveOperationException e) {
+                                            throw new IllegalStateException(e);
+                                        }
+                                    }
+                                }
+                                values.put("searchOrigin", "Player");
+                                resetAll = true;
+                                resetHud = true;
+                                readers.clear();
+                                message =
+                                        "Defaults restored; saved presets and custom groups are kept.";
+                            }
+                            minecraft.setScreen(this);
+                        },
+                        Component.literal("Reset all Atlas settings?"),
+                        Component.literal(
+                                "Restore display, search, worldgen and export defaults. Saved presets, custom groups and map files are kept.")));
     }
 
     private Button smallButton(String text, int x, int y, int w, int h, Runnable action) {
@@ -541,16 +819,34 @@ public final class AtlasScreen extends AtlasMenuScreen {
             List<String> suggestions =
                     switch (option.key) {
                         case "climateZones" -> ClimateZones.NAMES;
-                        case "rocks" ->
-                                List.copyOf(
-                                        Layer.categories(Layer.ROCKS, false, Map.of()).keySet());
-                        case "biomes" ->
-                                List.copyOf(
-                                        Layer.categories(Layer.BIOMES, false, Map.of()).keySet());
+                        case "soils" ->
+                                Arrays.stream(dev.ryan.tfcatlas.core.Soil.values())
+                                        .filter(s -> s != dev.ryan.tfcatlas.core.Soil.UNKNOWN)
+                                        .map(s -> Cell.label(s.name()))
+                                        .toList();
+                        case "rocks" -> WorldSearchGroups.rockNames();
+                        case "biomes" -> biomeSuggestions();
                         case "categories" -> List.of(Cell.TYPE_NAMES);
                         case "feature" -> SearchQuery.FEATURE_NAMES;
                         default -> List.of();
                     };
+            if (groupKey(option.key) != null) {
+                suggestions =
+                        dev.ryan.tfcatlas.core.SearchGroups.suggestions(
+                                suggestions, groupCatalog(option.key));
+            }
+            if (groupKey(option.key) != null) {
+                ListEditBox box =
+                        new ListEditBox(
+                                font, x, y, w, h, Component.literal(option.label), suggestions);
+                box.value(values.getOrDefault(option.key, ""));
+                box.responder(v -> values.put(option.key, v));
+                box.setTooltip(
+                        Tooltip.create(Component.literal(option.label + ": " + option.help)));
+                addRenderableWidget(box);
+                readers.add(() -> values.put(option.key, box.value()));
+                return;
+            }
             CompactEditBox box =
                     new CompactEditBox(
                             font, x, y, w, h, Component.literal(option.label), suggestions);
@@ -594,36 +890,90 @@ public final class AtlasScreen extends AtlasMenuScreen {
         return value;
     }
 
+    private List<String> biomeSuggestions() {
+        Set<String> names = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        names.addAll(Layer.categories(Layer.BIOMES, false, Map.of()).keySet());
+        for (String id : WorldBiomeGroups.current().registered()) {
+            if (!id.startsWith("minecraft:")) {
+                names.add(id.startsWith("tfc:") ? Cell.label(id) : id.replace('_', ' '));
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    private String groupKey(String field) {
+        return switch (field) {
+            case "biomes" -> "biomeGroups";
+            case "rocks" -> "rockGroups";
+            case "climateZones" -> "climateGroups";
+            default -> null;
+        };
+    }
+
+    private java.util.List<dev.ryan.tfcatlas.core.BiomeGroups.Group> groupCatalog(String field) {
+        return switch (field) {
+            case "biomes" -> WorldBiomeGroups.current().groups();
+            case "rocks" -> WorldSearchGroups.rocks();
+            case "climateZones" ->
+                    SavedGroups.catalog(
+                            "climateZones", dev.ryan.tfcatlas.core.ClimateGroups.groups());
+            default -> java.util.List.of();
+        };
+    }
+
+    private Button outlinedButton(String text, int x, int y, int width, Runnable action) {
+        int border =
+                text.startsWith("Reset") || text.equals("Clear cache") ? 0xFFCC5555 : 0xFFAA8C48;
+        return addRenderableWidget(new SearchButton(text, x, y, width, b -> action.run(), border));
+    }
+
+    private void refreshClosestResults() {
+        var player = minecraft.player;
+        if (AtlasClient.engine != null && player != null) {
+            AtlasClient.engine.updateClosestResults(player.getBlockX(), player.getBlockZ());
+        }
+    }
+
     private void initResults(int left, int content) {
+        refreshClosestResults();
+        resultButtons.clear();
         RegionEngine e = AtlasClient.engine;
         shown = e == null ? List.of() : e.results;
         shownSearching = e != null && e.searching;
-        if (selected != null && !shown.contains(selected)) {
-            selected = null;
+        if (selected != null) {
+            var previous = selected;
+            selected =
+                    shown.stream()
+                            .filter(
+                                    result ->
+                                            result.x() == previous.x()
+                                                    && result.z() == previous.z())
+                            .findFirst()
+                            .orElse(null);
         }
         if (selected == null && !shown.isEmpty()) {
             selected = shown.get(0);
         }
-        int pitch = Math.min(24, Math.max(20, (height - 126) / 5));
+        int pitch = dev.ryan.tfcatlas.core.ResultsLayout.rowPitch(height);
         for (int i = 0; i < Math.min(5, shown.size()); i++) {
             SearchQuery.Result r = shown.get(i);
             String y = r.surfaceY() == null ? "" : " · ~Y " + r.surfaceY();
             String text =
                     String.format(
                             Locale.ROOT,
-                            "%d. %d, %d%s · %.0f m · %s · %s",
+                            "%d. %d, %d%s · %.0f blocks from player · %s · %s",
                             i + 1,
                             r.x(),
                             r.z(),
                             y,
-                            r.distance(),
+                            ResultDistances.toPlayer(r),
                             r.rocks(),
                             Cell.label(r.cell().biome()));
             Button b =
                     button(
                             font.plainSubstrByWidth(text, content - 12),
                             left,
-                            71 + i * Math.min(pitch, 20),
+                            71 + i * pitch,
                             content,
                             () -> {
                                 selected = r;
@@ -637,6 +987,8 @@ public final class AtlasScreen extends AtlasMenuScreen {
                                                         Cell.label(r.cell().biome()))
                                                 + y;
                             });
+            resultButtons.put(b, r);
+            b.setHeight(pitch - 2);
             b.setTooltip(
                     Tooltip.create(
                             Component.literal(
@@ -645,8 +997,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                                                     Locale.ROOT,
                                                     " · %.1f mm · %.1f °C annual mean",
                                                     r.cell().rain(),
-                                                    r.cell().temperature())
-                                            + " (predicted host rocks, not confirmed ore)")));
+                                                    r.cell().temperature()))));
         }
         int y = height - 54, unit = content / 4;
         button(
@@ -655,7 +1006,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                 y,
                 unit - 2,
                 () -> {
-                    if (selected != null) {
+                    if (selected != null && apply()) {
                         XaeroBridge.center(parent, selected.x(), selected.z());
                         minecraft.setScreen(parent);
                     }
@@ -700,8 +1051,12 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     }
                     refresh();
                 });
-        button("Back to map", left, height - 27, 100, () -> minecraft.setScreen(parent));
-        button("Refresh", left + 104, height - 27, 68, this::refresh);
+        button("Back to map", left, height - 27, 100, this::onClose);
+    }
+
+    /** Keep result hover details inside the results area, clear of both footer button rows. */
+    int tooltipBottom() {
+        return tab == RESULTS ? Math.max(120, height - 78) : height;
     }
 
     private boolean shownSearching;
@@ -713,7 +1068,11 @@ public final class AtlasScreen extends AtlasMenuScreen {
                 box.tick();
             }
         }
-        if (tab == 2
+        if (tab == RESULTS) {
+            refreshClosestResults();
+        }
+        updateResultDistances();
+        if (tab == RESULTS
                 && AtlasClient.engine != null
                 && (shown != AtlasClient.engine.results
                         || shownSearching != AtlasClient.engine.searching)) {
@@ -721,10 +1080,66 @@ public final class AtlasScreen extends AtlasMenuScreen {
         }
     }
 
+    private void updateResultDistances() {
+        if (tab != RESULTS) {
+            return;
+        }
+        int number = 0, content = Math.min(width - 24, 620);
+        for (var entry : resultButtons.entrySet()) {
+            var r = entry.getValue();
+            String y = r.surfaceY() == null ? "" : " · Y " + r.surfaceY();
+            String text =
+                    String.format(
+                            Locale.ROOT,
+                            "%d. %d, %d%s · %.0f blocks from player · %s · %s",
+                            ++number,
+                            r.x(),
+                            r.z(),
+                            y,
+                            ResultDistances.toPlayer(r),
+                            r.rocks(),
+                            Cell.label(r.cell().biome()));
+            entry.getKey()
+                    .setMessage(Component.literal(font.plainSubstrByWidth(text, content - 12)));
+            entry.getKey()
+                    .setTooltip(
+                            Tooltip.create(
+                                    Component.literal(
+                                            text
+                                                    + String.format(
+                                                            Locale.ROOT,
+                                                            " · %.1f mm · %.1f °C annual mean",
+                                                            r.cell().rain(),
+                                                            r.cell().temperature()))));
+        }
+    }
+
+    private Map<String, String> submittedNames(Profile p) {
+        Map<String, String> labels = new LinkedHashMap<>();
+        labels.put(
+                "rocks",
+                dev.ryan.tfcatlas.core.SearchGroups.typedList(p.rocks, "", groupCatalog("rocks")));
+        labels.put(
+                "biomes",
+                dev.ryan.tfcatlas.core.SearchGroups.typedList(
+                        p.biomes, "", groupCatalog("biomes")));
+        labels.put(
+                "climateZones",
+                dev.ryan.tfcatlas.core.SearchGroups.typedList(
+                        p.climateZones, "", groupCatalog("climateZones")));
+        return Map.copyOf(labels);
+    }
+
     private Profile candidate() throws Exception {
         read();
         Profile p =
-                Profiles.JSON.fromJson(Profiles.JSON.toJson(AtlasClient.profile), Profile.class);
+                resetAll
+                        ? new Profile()
+                        : Profiles.JSON.fromJson(
+                                Profiles.JSON.toJson(AtlasClient.profile), Profile.class);
+        if (resetAll) {
+            p.savedSearches.putAll(AtlasClient.profile.savedSearches);
+        }
         for (var entry : values.entrySet()) {
             Field f = Profile.class.getField(entry.getKey());
             String s = entry.getValue().trim();
@@ -735,7 +1150,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             try {
                 if (f.getType() == int.class) {
                     value =
-                            entry.getKey().equals("highlightColor")
+                            Set.of("highlightColor").contains(entry.getKey())
                                     ? Integer.parseInt(s.replace("#", ""), 16)
                                     : Integer.valueOf(s);
                 } else if (f.getType() == float.class) {
@@ -795,7 +1210,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
         if (resetHud) {
             p.resetHud();
         }
-        p.query();
+        p.query(WorldBiomeGroups.current());
         p.searchResolution();
         p.validate();
         return p;
@@ -807,8 +1222,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
             AtlasClient.error = "";
             String before = generationKey(old), after = generationKey(next);
             AtlasClient.profile = next;
-            AtlasClient.prepareCoverage();
-            resetHud = false;
+            resetHud = resetAll = false;
             AtlasClient.save();
             if (!before.equals(after) || AtlasClient.engine == null) {
                 AtlasClient.rebuild();
@@ -854,13 +1268,14 @@ public final class AtlasScreen extends AtlasMenuScreen {
     private void clearSearchSettings() {
         read();
         AtlasClient.profile.clearSearchSettings();
-        for (Option o : OPTIONS[1]) {
+        for (Option o : OPTIONS[SEARCH]) {
             if (!o.key.equals("highlights")) {
                 values.put(o.key, AtlasClient.profile.searchValue(o.key));
             }
         }
         values.put("searchOrigin", AtlasClient.profile.searchOrigin);
         values.computeIfPresent("climateZones", (key, value) -> ClimateZones.displayList(value));
+        mirrorGroupFields();
         if (AtlasClient.engine != null) {
             AtlasClient.engine.clearSearch();
         }
@@ -880,25 +1295,13 @@ public final class AtlasScreen extends AtlasMenuScreen {
             return;
         }
         Profile p = AtlasClient.profile;
-        Set<String> rockNames = new HashSet<>(), biomeNames = new HashSet<>();
-        Layer.categories(Layer.ROCKS, false, Map.of())
-                .keySet()
-                .forEach(s -> rockNames.add(s.toLowerCase(Locale.ROOT).replace(' ', '_')));
-        Layer.categories(Layer.BIOMES, false, Map.of())
-                .keySet()
-                .forEach(s -> biomeNames.add(s.toLowerCase(Locale.ROOT).replace(' ', '_')));
-        for (String s : SearchQuery.names(p.rocks)) {
-            if (!rockNames.contains(
-                    s.substring(Math.max(s.lastIndexOf(':'), s.lastIndexOf('/')) + 1))) {
-                message = "Unknown rock: " + s + " (see Legend)";
-                return;
-            }
-        }
-        for (String s : SearchQuery.names(p.biomes)) {
-            if (!biomeNames.contains(s.substring(s.lastIndexOf(':') + 1))) {
-                message = "Unknown biome: " + s + " (see Legend)";
-                return;
-            }
+        // Resolve once: validation, warnings and the worker use the same immutable selection.
+        SearchQuery query = p.query(WorldBiomeGroups.current());
+        try {
+            WorldSearchGroups.requireKnownRocks(query);
+        } catch (IllegalArgumentException invalid) {
+            message = invalid.getMessage();
+            return;
         }
         if (minecraft.level == null
                 || minecraft.player == null
@@ -919,25 +1322,21 @@ public final class AtlasScreen extends AtlasMenuScreen {
         Runnable start =
                 () -> {
                     AtlasClient.engine.search(
-                            p.query(),
+                            query,
                             x,
                             z,
                             p.radius,
                             p.resultLimit,
                             p.resultSpacing,
                             p.searchResolution(),
-                            p.precision.equals("Auto"));
-                    tab = 2;
+                            p.precision.equals("Auto"),
+                            submittedNames(p));
+                    tab = RESULTS;
                     minecraft.setScreen(this);
                 };
         SearchWorkload work =
                 AtlasClient.engine.searchWorkload(
-                        p.query(),
-                        x,
-                        z,
-                        p.radius,
-                        p.searchResolution(),
-                        !p.precision.equals("Auto"));
+                        query, x, z, p.radius, p.searchResolution(), !p.precision.equals("Auto"));
         if (work.warn()) {
             minecraft.setScreen(
                     new net.minecraft.client.gui.screens.ConfirmScreen(
@@ -998,19 +1397,27 @@ public final class AtlasScreen extends AtlasMenuScreen {
         if (!apply() || AtlasClient.engine == null) {
             return;
         }
-        AtlasClient.engine.export(
-                (int) AtlasClient.view.x(), (int) AtlasClient.view.z(), AtlasClient.profile);
-        message = "Exporting 32 km map in background…";
+        var p = AtlasClient.profile;
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        var view = AtlasClient.view;
+        boolean player = p.exportCenter.equals("Player") && mc.player != null;
+        int x = player ? mc.player.getBlockX() : view == null ? 0 : (int) view.x();
+        int z = player ? mc.player.getBlockZ() : view == null ? 0 : (int) view.z();
+        AtlasClient.engine.export(x, z, p);
+        message = "Exporting PNG in the background…";
     }
 
     @Override
     public void renderContent(GuiGraphics g, int mx, int my, float delta) {
         g.drawCenteredString(font, "TFC Atlas · " + TABS[tab], width / 2, 8, 0xE8D9B6);
         int content = Math.min(width - 24, 620), left = (width - content) / 2;
-        if (tab == 1) {
+        if (tab == SEARCH) {
             for (var group :
                     SearchLayout.groups(
-                            width, height, values.get("searchOrigin").equals("Coordinates"))) {
+                            width,
+                            height,
+                            values.get("searchOrigin").equals("Coordinates"),
+                            searchSection)) {
                 smallText(
                         g,
                         group.label(),
@@ -1026,11 +1433,17 @@ public final class AtlasScreen extends AtlasMenuScreen {
                     height - 72,
                     SearchLayout.actions(width, height).get(0).width(),
                     0xE8D9B6);
-        } else if (tab != 2) {
-            var fields = SettingsLayout.fields(width, height, OPTIONS[tab].length);
+        } else if (tab != RESULTS) {
+            var options = displayedOptions();
+            var fields =
+                    SettingsLayout.fields(
+                            width,
+                            height,
+                            options.length,
+                            (tab == DISPLAY || tab == CACHE) ? 74 : 52);
             for (int n = 0; n < fields.size(); n++) {
                 var label = fields.get(n).label();
-                smallText(g, OPTIONS[tab][n].label, label.x(), label.y(), label.width(), 0xCEC9BD);
+                smallText(g, options[n].label, label.x(), label.y(), label.width(), 0xCEC9BD);
             }
         } else {
             RegionEngine e = AtlasClient.engine;
@@ -1065,12 +1478,12 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         0xB9B5A7);
             }
         }
-        if (tab == 2 && AtlasClient.engine != null) {
+        if (tab == RESULTS && AtlasClient.engine != null) {
             fittedText(
-                    g, AtlasClient.engine.searchAdvice, left, height - 65, content, .75f, 0xC9C49E);
+                    g, AtlasClient.engine.searchAdvice, left, height - 73, content, .75f, 0xC9C49E);
         }
-        if (tab == 5) {
-            var fields = SettingsLayout.fields(width, height, OPTIONS[5].length);
+        if (tab == CACHE && cacheSection == 0) {
+            var fields = SettingsLayout.fields(width, height, displayedOptions().length, 74);
             int top =
                     fields.stream()
                                     .mapToInt(f -> f.input().y() + f.input().height())
@@ -1090,9 +1503,36 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         i == 0 ? 0xE8D9B6 : 0xB9B5A7);
             }
         }
+        if (!loadedPreset.isBlank()) {
+            int alpha =
+                    dev.ryan.tfcatlas.core.PresetNotice.alpha(
+                            net.minecraft.Util.getMillis() - presetLoadedAt);
+            if (alpha > 0) {
+                int x = left + (tab == RESULTS ? 100 : Math.min(140, content)) + 8;
+                fittedText(
+                        g,
+                        loadedPreset,
+                        x,
+                        height - 21,
+                        Math.max(1, left + content - x),
+                        .75f,
+                        (alpha << 24) | 0xFFD36A);
+            }
+        }
         if (!message.isBlank()) {
-            g.drawString(
-                    font, font.plainSubstrByWidth(message, content), left, height - 39, 0xFFE098);
+            fittedText(
+                    g,
+                    message,
+                    left,
+                    tab == RESULTS
+                            ? dev.ryan.tfcatlas.core.ResultsLayout.statusY(
+                                    height,
+                                    AtlasClient.engine != null
+                                            && !AtlasClient.engine.searchAdvice.isBlank())
+                            : height - 39,
+                    content,
+                    .7f,
+                    0xFFE098);
         }
     }
 
@@ -1103,7 +1543,9 @@ public final class AtlasScreen extends AtlasMenuScreen {
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        if (apply()) {
+            minecraft.setScreen(parent);
+        }
     }
 
     private void fittedText(
@@ -1131,7 +1573,8 @@ public final class AtlasScreen extends AtlasMenuScreen {
 
     private final class PresetScreen extends AtlasMenuScreen {
         private final AtlasScreen back;
-        private int presetScroll;
+        private final dev.ryan.tfcatlas.core.SmoothScroll presetScroll =
+                new dev.ryan.tfcatlas.core.SmoothScroll();
 
         private record Entry(String label, Profile profile, String savedName) {}
 
@@ -1140,14 +1583,17 @@ public final class AtlasScreen extends AtlasMenuScreen {
             back = b;
         }
 
-        private void load(Profile p) {
-            for (Option o : OPTIONS[1]) {
+        private void load(Profile p, String name) {
+            for (Option o : OPTIONS[SEARCH]) {
                 try {
                     back.values.put(o.key, p.searchValue(o.key));
                 } catch (Exception ignored) {
                 }
             }
             back.values.put("searchOrigin", p.searchOrigin);
+            back.mirrorGroupFields();
+            back.loadedPreset = "Preset: " + name + " loaded";
+            back.presetLoadedAt = net.minecraft.Util.getMillis();
             minecraft.setScreen(back);
         }
 
@@ -1155,7 +1601,16 @@ public final class AtlasScreen extends AtlasMenuScreen {
         protected void init() {
             EditBox name =
                     new HoverEditBox(
-                            font, width / 2 - 120, 48, 240, 20, Component.literal("Preset name"));
+                            font,
+                            (width - Math.min(width - 24, 420)) / 2,
+                            48,
+                            Math.min(width - 24, 420),
+                            20,
+                            Component.literal("Preset name"));
+            name.setTooltip(
+                    Tooltip.create(
+                            Component.literal(
+                                    "Enter a name for this saved search. Save stores the current search filters, not the world seed.")));
             name.setValue(presetName);
             name.setResponder(v -> presetName = v);
             addRenderableWidget(name);
@@ -1172,13 +1627,16 @@ public final class AtlasScreen extends AtlasMenuScreen {
                                             AtlasClient.profile.savedSearches.put(
                                                     presetName, Profiles.preset(p));
                                             AtlasClient.save();
-                                            minecraft.setScreen(back);
+                                            rebuildWidgets();
                                         } catch (Exception e) {
                                             back.message = e.getMessage();
-                                            minecraft.setScreen(back);
                                         }
                                     })
-                            .bounds(width / 2 - 120, 74, 240, 20)
+                            .bounds(
+                                    (width - Math.min(width - 24, 420)) / 2,
+                                    74,
+                                    Math.min(width - 24, 420),
+                                    20)
                             .build());
             List<Entry> entries = new ArrayList<>();
             AtlasClient.profile.savedSearches.forEach(
@@ -1186,7 +1644,7 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         try {
                             entries.add(
                                     new Entry(
-                                            "Load: " + label,
+                                            "Load preset: " + label,
                                             Profiles.decode(
                                                     com.google.gson.JsonParser.parseString(json)
                                                             .getAsJsonObject()),
@@ -1194,61 +1652,45 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         } catch (RuntimeException ignored) {
                         }
                     });
-            int capacity = Math.max(1, (height - 146) / 24);
-            presetScroll = Math.max(0, Math.min(presetScroll, entries.size() - capacity));
-            for (int i = presetScroll; i < Math.min(entries.size(), presetScroll + capacity); i++) {
-                Entry entry = entries.get(i);
-                int y = 100 + (i - presetScroll) * 24;
-                var b =
-                        addRenderableWidget(
-                                Button.builder(
-                                                Component.literal(
-                                                        font.plainSubstrByWidth(
-                                                                entry.label(), 198)),
-                                                button -> load(entry.profile()))
-                                        .bounds(width / 2 - 120, y, 210, 20)
-                                        .build());
-                b.setTooltip(Tooltip.create(Component.literal(entry.label())));
-                if (entry.savedName() != null) {
+            entries.sort(
+                    java.util.Comparator.comparing(Entry::label, String.CASE_INSENSITIVE_ORDER));
+            int content = Math.min(width - 24, 420), left = (width - content) / 2;
+            var list =
                     addRenderableWidget(
-                            Button.builder(
-                                            Component.literal("X"),
-                                            button -> {
-                                                AtlasClient.profile.savedSearches.remove(
-                                                        entry.savedName());
-                                                AtlasClient.save();
-                                                rebuildWidgets();
-                                            })
-                                    .bounds(width / 2 + 94, y, 26, 20)
-                                    .build());
+                            new MinecraftScrollPanel(
+                                    left, 100, content, Math.max(28, height - 140), presetScroll));
+            int row = 0;
+            for (var entry : entries) {
+                int y = row++ * 28, remove = entry.savedName() == null ? 0 : 28;
+                list.cell(
+                        0,
+                        y,
+                        list.contentWidth() - remove,
+                        24,
+                        entry::label,
+                        () -> load(entry.profile(), entry.savedName()),
+                        entry.label(),
+                        null);
+                if (entry.savedName() != null) {
+                    list.cell(
+                            list.contentWidth() - 24,
+                            y,
+                            24,
+                            24,
+                            () -> "X",
+                            () -> {
+                                AtlasClient.profile.savedSearches.remove(entry.savedName());
+                                AtlasClient.save();
+                                rebuildWidgets();
+                            },
+                            "Delete this preset",
+                            null);
                 }
             }
             addRenderableWidget(
-                                    Button.builder(
-                                                    Component.literal("↑"),
-                                                    b -> {
-                                                        presetScroll--;
-                                                        rebuildWidgets();
-                                                    })
-                                            .bounds(width / 2 - 120, height - 28, 24, 20)
-                                            .build())
-                            .active =
-                    entries.size() > capacity;
-            addRenderableWidget(
-                    Button.builder(Component.literal("Back"), b -> minecraft.setScreen(back))
-                            .bounds(width / 2 - 50, height - 28, 100, 20)
+                    Button.builder(Component.literal("Back"), ignored -> minecraft.setScreen(back))
+                            .bounds(left, height - 28, content, 20)
                             .build());
-            addRenderableWidget(
-                                    Button.builder(
-                                                    Component.literal("↓"),
-                                                    b -> {
-                                                        presetScroll++;
-                                                        rebuildWidgets();
-                                                    })
-                                            .bounds(width / 2 + 96, height - 28, 24, 20)
-                                            .build())
-                            .active =
-                    entries.size() > capacity;
         }
 
         @Override
@@ -1262,13 +1704,6 @@ public final class AtlasScreen extends AtlasMenuScreen {
                         108,
                         0xCEC9BD);
             }
-        }
-
-        @Override
-        public boolean mouseScrolled(double x, double y, double horizontal, double delta) {
-            presetScroll = Math.max(0, presetScroll - (int) Math.signum(delta) * 3);
-            rebuildWidgets();
-            return true;
         }
 
         @Override

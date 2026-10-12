@@ -11,7 +11,8 @@
     "RegionRecoveryMixin",
     "RegionAreaAccessor",
     "RegionInitMixin",
-    "EditBoxAccessor"
+    "EditBoxAccessor",
+    "MinimapSearchMixin"
   ],
   "injectors": {
     "defaultRequire": 0

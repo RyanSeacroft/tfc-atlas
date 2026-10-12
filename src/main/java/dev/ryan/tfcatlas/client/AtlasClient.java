@@ -2,6 +2,7 @@ package dev.ryan.tfcatlas.client;
 
 import dev.ryan.tfcatlas.core.Cell;
 import dev.ryan.tfcatlas.core.ClimateZones;
+import dev.ryan.tfcatlas.core.DefaultHud;
 import dev.ryan.tfcatlas.core.HudLayout;
 import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.RockLayer;
@@ -27,6 +28,15 @@ import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
 
 public final class AtlasClient {
+    private static String distanceLabel(double distance) {
+        if (Double.isNaN(distance)) {
+            return "unavailable";
+        }
+        return Double.isInfinite(distance)
+                ? ">8192 blocks"
+                : String.format(Locale.ROOT, "%.0f blocks", distance);
+    }
+
     public static Profile profile = new Profile();
     public static RegionEngine engine;
     public static Screen map;
@@ -44,6 +54,7 @@ public final class AtlasClient {
     private static boolean held = false, criteriaClipped = false;
     private static Profile peekProfile;
     private static final HudEditor hud = new HudEditor();
+    private static final MapKeyView mapKey = new MapKeyView();
     private static final List<CompactButton> toolbar = new ArrayList<>();
     private static HudResizeHandle toolbarGrip;
     private static final KeyMapping OPEN =
@@ -76,6 +87,7 @@ public final class AtlasClient {
         NeoForge.EVENT_BUS.addListener(AtlasClient::keyUp);
         NeoForge.EVENT_BUS.addListener(AtlasClient::tick);
         NeoForge.EVENT_BUS.addListener(AtlasClient::mousePressed);
+        NeoForge.EVENT_BUS.addListener(AtlasClient::mouseScrolled);
         NeoForge.EVENT_BUS.addListener(AtlasClient::mouseDragged);
         NeoForge.EVENT_BUS.addListener(AtlasClient::mouseReleased);
     }
@@ -235,13 +247,6 @@ public final class AtlasClient {
             message("Xaero integration: " + ex.getMessage());
             return;
         }
-        if (profile.maskedCoverage()) {
-            try {
-                ExploredMask.prepare();
-            } catch (RuntimeException ex) {
-                message("Cannot prepare terrain coverage: " + ex.getMessage());
-            }
-        }
         hud.reset();
         toolbar.clear();
         String[] names = {
@@ -257,8 +262,8 @@ public final class AtlasClient {
             "Resize / Move UI"
         };
         Button.OnPress[] actions = {
-            b -> open(0),
-            b -> open(1),
+            b -> open(AtlasScreen.DISPLAY),
+            b -> open(AtlasScreen.SEARCH),
             b -> {
                 profile.searchCircle = !profile.searchCircle;
                 save();
@@ -276,12 +281,10 @@ public final class AtlasClient {
             b -> cycleCoverage(),
             b -> {
                 profile.cycleDisplay();
-                prepareCoverage();
                 save();
             },
             b -> {
                 profile.atlasEnabled = !profile.atlasEnabled;
-                prepareCoverage();
                 save();
             },
             b -> hud.toggle()
@@ -301,18 +304,12 @@ public final class AtlasClient {
         held = false;
         peekProfile = null;
         profile.cycleCoverage();
-        prepareCoverage();
         save();
     }
 
+    /** Compatibility for older search screens; masks now allocate their own framebuffer lazily. */
     static void prepareCoverage() {
-        if (profile.maskedCoverage()) {
-            try {
-                ExploredMask.prepare();
-            } catch (RuntimeException ex) {
-                message("Cannot prepare terrain coverage: " + ex.getMessage());
-            }
-        }
+        // Never enable stencil on Minecraft's framebuffer here.
     }
 
     private static void layoutToolbar(Screen screen, boolean show) {
@@ -325,6 +322,14 @@ public final class AtlasClient {
                 .setMessage(
                         Component.literal(
                                 profile.searchCircle ? "Search radius ✓" : "Search radius"));
+        toolbar.get(3)
+                .setMessage(
+                        Component.literal(
+                                profile.selected().label
+                                        + " · "
+                                        + (profile.selected().ordinal() + 1)
+                                        + "/"
+                                        + Layer.values().length));
         toolbar.get(4).setMessage(Component.literal("Rock: " + profile.rockLayer));
         toolbar.get(6).setMessage(Component.literal("Coverage: " + profile.coverageLabel()));
         toolbar.get(7)
@@ -464,6 +469,7 @@ public final class AtlasClient {
         boolean show = !nativeMenuOpen(screen);
         layoutToolbar(screen, show);
         if (!show) {
+            mapKey.hide();
             hud.finish();
             hud.hide(HudEditor.Panel.KEY);
             hud.hide(HudEditor.Panel.INFO);
@@ -502,8 +508,8 @@ public final class AtlasClient {
                     profile.layerTitle()
                             + " · "
                             + profile.mode
-                            + (engine.pendingCount() > 0
-                                    ? " · " + engine.pendingCount() + " loading"
+                            + (renderer.loadingCount > 0
+                                    ? " · " + renderer.loadingCount + " tiles loading"
                                     : ""));
             if (view != null && !view.surface()) {
                 lines.add("Surface predictions · rocks use selected stratum");
@@ -512,41 +518,56 @@ public final class AtlasClient {
                 Cell c = engine.cell(hoverX, hoverZ);
                 lines.add("X " + hoverX + "  Z " + hoverZ + " · " + renderer.notice);
                 if (c != null) {
-                    lines.add("Climate zone: " + ClimateZones.label(c.climateZone()));
-                    if (profile.selected() == Layer.SOIL) {
-                        lines.add("Likely soil: " + c.soil().label);
-                        if (!c.soil().fertility().isEmpty()) {
-                            lines.add(c.soil().fertility());
-                        }
+                    lines.add("Terrain: " + Cell.label(c.biome()) + " · " + Layer.altitudeBand(c));
+                    lines.add(
+                            "Rock ("
+                                    + profile.selectedRockLayer().label
+                                    + "): "
+                                    + Cell.label(c.rock(profile.selectedRockLayer()))
+                                    + " · "
+                                    + c.typeName());
+                    if (c.soil() != dev.ryan.tfcatlas.core.Soil.UNKNOWN) {
+                        lines.add("Soil ≈ " + c.soil().label);
                     }
+                    lines.add(
+                            String.format(
+                                    Locale.ROOT,
+                                    "Climate: %.0f mm rain · %.1f °C mean",
+                                    c.rain(),
+                                    c.temperature()));
+                    lines.add("Zone: " + ClimateZones.label(c.climateZone()));
                     if (profile.selected().climate() && profile.selected() != Layer.CLIMATE_ZONES) {
                         lines.add(profile.selected().value(c));
                     }
                     lines.add(
-                            profile.selectedRockLayer().label
-                                    + ": "
-                                    + Cell.label(c.rock(profile.selectedRockLayer()))
-                                    + " · "
-                                    + c.typeName()
-                                    + " · "
-                                    + Cell.label(c.biome()));
-                    lines.add(
-                            String.format(
-                                    Locale.ROOT,
-                                    "%.0f mm · %.1f °C mean · %s · %s",
-                                    c.rain(),
-                                    c.temperature(),
-                                    Layer.altitudeBand(c),
-                                    Layer.inlandBand(c)));
+                            "Location: "
+                                    + Layer.inlandBand(c)
+                                    + " · inlandness index "
+                                    + c.inland());
                 } else {
                     lines.add(engine.cursorStatus(hoverX, hoverZ));
                 }
                 var height = engine.hoverHeight(hoverX, hoverZ);
+                var local = engine.localInfo(hoverX, hoverZ);
+                String y =
+                        height == null
+                                ? "calculating…"
+                                : height.failed() ? "unavailable" : "~" + height.y();
+                String slope =
+                        local == null
+                                ? "calculating…"
+                                : Double.isFinite(local.slope())
+                                        ? String.format(
+                                                Locale.ROOT, "~%.1f° / 32 blocks", local.slope())
+                                        : "unavailable";
+                lines.add("Surface Y: " + y + " · slope " + slope);
                 lines.add(
-                        "Predicted surface Y: "
-                                + (height == null
-                                        ? "calculating…"
-                                        : height.failed() ? "unavailable" : "~" + height.y()));
+                        local == null
+                                ? "Water distances: calculating…"
+                                : "Water ≈ river "
+                                        + distanceLabel(local.river())
+                                        + " · ocean "
+                                        + distanceLabel(local.ocean()));
             }
             if (engine.activeQuery != null) {
                 lines.add(engine.searchStatus);
@@ -554,78 +575,56 @@ public final class AtlasClient {
                     lines.add("Outlined + shaded regions = search matches");
                 }
             }
-            if (profile.spawn) {
-                lines.add("Gold boundary: configured spawn search area");
-            }
             String tileStatus = engine.statusText();
             if (!tileStatus.equals("Ready")) {
                 lines.add(tileStatus);
             }
         }
-        boolean keyVisible =
-                profile.legend
-                        && engine != null
-                        && (profile.overlayVisible() || held)
-                        && view != null
-                        && view.overworld();
-        if (keyVisible) {
-            float scale = (float) hud.scale(HudEditor.Panel.KEY);
-            int requestedWidth =
-                    Math.max(
-                            24,
-                            Math.min(
-                                    (int) (safe.width() * .6),
-                                    profile.keyWidth() == 0
-                                            ? LegendScreen.defaultKeyWidth(profile, scale)
-                                            : profile.keyWidth()));
-            for (int limit = safe.height(); limit >= 12; limit -= 8) {
-                var plan = LegendScreen.plan(profile, requestedWidth, limit, scale);
-                if (plan == null) {
-                    continue;
-                }
-                int w = (int) Math.ceil(plan.width() * scale),
-                        h = (int) Math.ceil(plan.height() * scale);
-                HudLayout.Box key =
-                        hud.place(
-                                safe,
-                                w,
-                                h,
-                                hud.x(HudEditor.Panel.KEY, safe.right() - w),
-                                hud.y(HudEditor.Panel.KEY, safe.y()),
-                                occupied);
-                if (key != null) {
-                    LegendScreen.compact(g, key, profile, scale, plan);
-                    occupied.add(hud.occupied(HudEditor.Panel.KEY, key));
-                    hud.drawn(HudEditor.Panel.KEY, key, scale);
-                    break;
-                }
-            }
-        }
         SearchDetails details =
                 engine != null && view != null && view.overworld() ? engine.searchDetails : null;
-        HudLayout.Box criteria = drawCriteria(g, safe, occupied, details);
-        if (criteria != null) {
-            occupied.add(hud.occupied(HudEditor.Panel.CRITERIA, criteria));
-        }
         if (!lines.isEmpty()) {
             var font = Minecraft.getInstance().font;
             List<net.minecraft.util.FormattedCharSequence> wrapped = new ArrayList<>();
             float scale = (float) hud.scale(HudEditor.Panel.INFO);
+            int padding = HudStyle.padding(scale);
             int panelWidth =
-                    Math.max(30, (int) (Math.min(348 * scale, safe.width() * .65) / scale) - 8);
+                    Math.max(
+                            30,
+                            (int)
+                                            (Math.min(
+                                                            DefaultHud.INFO_WIDTH * scale,
+                                                            safe.width() * .65)
+                                                    / scale)
+                                    - padding * 2);
             for (String line : lines) {
                 wrapped.addAll(font.split(Component.literal(line), panelWidth));
             }
             int maxLines =
-                    Math.min(wrapped.size(), Math.max(1, (int) (safe.height() / scale - 6) / 10));
+                    Math.min(
+                            wrapped.size(),
+                            Math.max(1, (int) (safe.height() / scale - padding * 2) / 10));
             for (; maxLines >= 1; maxLines--) {
                 var visible = wrapped.subList(0, maxLines);
                 int textWidth = visible.stream().mapToInt(font::width).max().orElse(0);
-                int logicalWidth = Math.min(panelWidth + 8, hud.stableInfoWidth(textWidth + 8)),
+                int
+                        logicalWidth =
+                                Math.min(
+                                        panelWidth + padding * 2,
+                                        profile.hover
+                                                ? hud.stableInfoWidth(
+                                                        Math.max(
+                                                                DefaultHud.INFO_WIDTH,
+                                                                textWidth + padding * 2))
+                                                : textWidth + padding * 2),
                         logicalHeight =
                                 Math.min(
                                         (int) (safe.height() / scale),
-                                        hud.stableInfoHeight(maxLines * 10 + 4));
+                                        profile.hover
+                                                ? hud.stableInfoHeight(
+                                                        Math.max(
+                                                                DefaultHud.INFO_HEIGHT,
+                                                                maxLines * 10 + padding * 2))
+                                                : maxLines * 10 + padding * 2);
                 int physicalWidth = (int) Math.ceil(logicalWidth * scale),
                         panelHeight = (int) Math.ceil(logicalHeight * scale);
                 HudLayout.Box panel =
@@ -642,16 +641,71 @@ public final class AtlasClient {
                 g.pose().pushPose();
                 g.pose().translate(panel.x(), panel.y(), 0);
                 g.pose().scale(scale, scale, 1);
-                g.fill(0, 0, logicalWidth, logicalHeight, 0xBD161B1D);
-                int y = 2;
+                HudStyle.panel(g, logicalWidth, logicalHeight);
+                int y = padding;
                 for (var line : visible) {
-                    g.drawString(font, line, 4, y, 0xE9E2CF);
+                    g.drawString(
+                            font, line, padding, y, y == padding ? HudStyle.TITLE : HudStyle.TEXT);
                     y += 10;
                 }
                 g.pose().popPose();
+                HudStyle.frame(g, panel, false);
                 hud.drawn(HudEditor.Panel.INFO, panel, scale);
+                occupied.add(hud.occupied(HudEditor.Panel.INFO, panel));
                 break;
             }
+        }
+        HudLayout.Box criteria = drawCriteria(g, safe, occupied, details);
+        if (criteria != null) {
+            occupied.add(hud.occupied(HudEditor.Panel.CRITERIA, criteria));
+        }
+        boolean keyDrawn = false;
+        boolean keyVisible =
+                profile.legend
+                        && engine != null
+                        && (profile.overlayVisible() || held)
+                        && view != null
+                        && view.overworld();
+        if (keyVisible) {
+            float scale = (float) hud.scale(HudEditor.Panel.KEY);
+            int requestedWidth =
+                    Math.max(
+                            24,
+                            Math.min(
+                                    (int) (safe.width() * .6),
+                                    profile.keyWidth() == 0
+                                            ? LegendScreen.defaultKeyWidth(profile, scale)
+                                            : profile.keyWidth()));
+            var keyArea =
+                    HudLayout.keyArea(
+                            safe, toolbarBounds, criteria, hud.bounds(HudEditor.Panel.INFO));
+            int availableHeight = profile.keyY < 0 ? keyArea.height() : safe.height();
+            for (int limit = availableHeight; limit >= 12; limit -= 8) {
+                var plan = LegendScreen.plan(profile, requestedWidth, limit, scale);
+                if (plan == null) {
+                    continue;
+                }
+                int w = (int) Math.ceil(plan.width() * scale),
+                        h = (int) Math.ceil(plan.height() * scale);
+                HudLayout.Box key =
+                        hud.place(
+                                safe,
+                                w,
+                                h,
+                                hud.x(HudEditor.Panel.KEY, keyArea.x()),
+                                hud.y(HudEditor.Panel.KEY, keyArea.y()),
+                                occupied);
+                if (key != null) {
+                    LegendScreen.compact(g, key, profile, scale, plan, mapKey);
+                    keyDrawn = true;
+                    occupied.add(hud.occupied(HudEditor.Panel.KEY, key));
+                    hud.drawn(HudEditor.Panel.KEY, key, scale);
+                    break;
+                }
+            }
+        }
+        if (!keyDrawn) {
+            mapKey.hide();
         }
         hud.render(g, s.width, s.height);
         if (criteria != null
@@ -692,12 +746,21 @@ public final class AtlasClient {
             List<HudLayout.Box> occupied,
             SearchDetails details) {
         criteriaClipped = false;
-        if (details == null) {
+        if (details == null || !profile.showCriteria) {
             return null;
         }
         var font = Minecraft.getInstance().font;
         float scale = (float) hud.scale(HudEditor.Panel.CRITERIA);
-        int wrapWidth = Math.max(30, (int) (Math.min(330 * scale, safe.width() * .65) / scale) - 8);
+        int padding = HudStyle.padding(scale);
+        int wrapWidth =
+                Math.max(
+                        30,
+                        (int)
+                                        (Math.min(
+                                                        DefaultHud.SEARCH_WIDTH * scale,
+                                                        safe.width() * .65)
+                                                / scale)
+                                - padding * 2);
         List<net.minecraft.util.FormattedCharSequence> wrapped = new ArrayList<>();
         for (String line : details.lines()) {
             wrapped.addAll(font.split(Component.literal(line), wrapWidth));
@@ -728,6 +791,16 @@ public final class AtlasClient {
         String title = "Current search";
         int limit =
                 Math.min(wrapped.size(), Math.max(1, (int) (safe.height() * .6 / scale - 30) / 10));
+        var info = hud.bounds(HudEditor.Panel.INFO);
+        if (profile.criteriaY < 0 && info != null) {
+            var toolbar = hud.bounds(HudEditor.Panel.TOOLBAR);
+            int top =
+                    toolbar == null
+                            ? safe.y()
+                            : Math.max(safe.y(), toolbar.bottom() + DefaultHud.GAP);
+            int room = Math.max(0, info.y() - top - DefaultHud.GAP);
+            limit = Math.min(limit, Math.max(1, (int) (room / scale - 28) / 10));
+        }
         for (int count = limit; count >= 1; count--) {
             boolean clipped = count < wrapped.size();
             var visible = wrapped.subList(0, count);
@@ -735,21 +808,32 @@ public final class AtlasClient {
                     Math.max(
                                     font.width(title),
                                     visible.stream().mapToInt(font::width).max().orElse(0))
-                            + 8;
+                            + padding * 2;
             if (clipped) {
                 width =
                         Math.max(
                                 width,
-                                Math.min(wrapWidth, font.width("… hover for full criteria")) + 8);
+                                Math.min(wrapWidth, font.width("… hover for full criteria"))
+                                        + padding * 2);
             }
-            int height = 17 + count * 10 + (clipped ? 11 : 0);
+            width = Math.min(wrapWidth + padding * 2, Math.max(width, DefaultHud.SEARCH_WIDTH));
+            int height = padding * 2 + 12 + count * 10 + (clipped ? 11 : 0);
+            int physicalWidth = (int) Math.ceil(width * scale),
+                    physicalHeight = (int) Math.ceil(height * scale);
+            var preferred =
+                    HudLayout.above(
+                            safe,
+                            hud.bounds(HudEditor.Panel.INFO),
+                            physicalWidth,
+                            physicalHeight,
+                            DefaultHud.GAP);
             var box =
                     hud.place(
                             safe,
-                            (int) Math.ceil(width * scale),
-                            (int) Math.ceil(height * scale),
-                            hud.x(HudEditor.Panel.CRITERIA, safe.x()),
-                            hud.y(HudEditor.Panel.CRITERIA, safe.y() + 14),
+                            physicalWidth,
+                            physicalHeight,
+                            hud.x(HudEditor.Panel.CRITERIA, preferred.x()),
+                            hud.y(HudEditor.Panel.CRITERIA, preferred.y()),
                             occupied);
             if (box == null) {
                 continue;
@@ -757,23 +841,24 @@ public final class AtlasClient {
             g.pose().pushPose();
             g.pose().translate(box.x(), box.y(), 0);
             g.pose().scale(scale, scale, 1);
-            g.fill(0, 0, width, height, 0xCD161B1D);
-            g.drawString(font, title, 4, 3, 0xE8D9B6);
-            int y = 15;
+            HudStyle.panel(g, width, height);
+            g.drawString(font, title, padding, padding, HudStyle.TITLE);
+            int y = padding + 12;
             for (var line : visible) {
-                g.drawString(font, line, 4, y, 0xE9E2CF);
+                g.drawString(font, line, padding, y, y == padding ? HudStyle.TITLE : HudStyle.TEXT);
                 y += 10;
             }
             if (clipped) {
                 g.drawString(
                         font,
-                        font.plainSubstrByWidth("… hover for full criteria", width - 8),
-                        4,
+                        font.plainSubstrByWidth("… hover for full criteria", width - padding * 2),
+                        padding,
                         y,
                         0xAAA99D);
             }
             g.pose().popPose();
             criteriaClipped = clipped;
+            HudStyle.frame(g, box, false);
             hud.drawn(HudEditor.Panel.CRITERIA, box, scale);
             return box;
         }
@@ -787,6 +872,9 @@ public final class AtlasClient {
             return;
         }
         if (!hud.editing) {
+            if (mapKey.click(e.getMouseX(), e.getMouseY())) {
+                e.setCanceled(true);
+            }
             return;
         }
         if (!toolbar.isEmpty()) {
@@ -801,15 +889,33 @@ public final class AtlasClient {
     }
 
     private static void mouseDragged(ScreenEvent.MouseDragged.Pre e) {
-        if (XaeroBridge.isMap(e.getScreen())
-                && e.getMouseButton() == 0
-                && hud.drag(e.getMouseX(), e.getMouseY(), e.getScreen())) {
+        if (!XaeroBridge.isMap(e.getScreen())
+                || nativeMenuOpen(e.getScreen())
+                || e.getMouseButton() != 0) {
+            return;
+        }
+        if (hud.editing
+                ? hud.drag(e.getMouseX(), e.getMouseY(), e.getScreen())
+                : mapKey.drag(e.getMouseY())) {
             e.setCanceled(true);
         }
     }
 
     private static void mouseReleased(ScreenEvent.MouseButtonReleased.Pre e) {
-        if (XaeroBridge.isMap(e.getScreen()) && e.getButton() == 0 && hud.finish()) {
+        if (e.getButton() == 0) {
+            boolean captured = mapKey.release();
+            captured |= hud.finish();
+            if (XaeroBridge.isMap(e.getScreen()) && captured) {
+                e.setCanceled(true);
+            }
+        }
+    }
+
+    private static void mouseScrolled(ScreenEvent.MouseScrolled.Pre e) {
+        if (XaeroBridge.isMap(e.getScreen())
+                && !nativeMenuOpen(e.getScreen())
+                && !hud.editing
+                && mapKey.wheel(e.getMouseX(), e.getMouseY(), e.getScrollDeltaY())) {
             e.setCanceled(true);
         }
     }
@@ -822,7 +928,7 @@ public final class AtlasClient {
             hud.toggle();
             e.setCanceled(true);
         } else if (OPEN.matches(e.getKeyCode(), e.getScanCode())) {
-            open(0);
+            open(AtlasScreen.DISPLAY);
             e.setCanceled(true);
         } else if (TOGGLE.matches(e.getKeyCode(), e.getScanCode())) {
             cycleCoverage();

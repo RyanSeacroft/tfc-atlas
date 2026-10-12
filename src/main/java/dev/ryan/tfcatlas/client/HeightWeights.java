@@ -16,6 +16,8 @@ import net.dries007.tfc.world.biome.BiomeBlendType;
 final class HeightWeights<T> {
     private final net.dries007.tfc.world.Sampler<T> source;
     private final Function<T, BiomeBlendType> group;
+    private final dev.ryan.tfcatlas.core.SampleCache<T> samples =
+            new dev.ryan.tfcatlas.core.SampleCache<>(8192);
     private final Map<Long, Object2DoubleMap<T>> wide = new LinkedHashMap<>(256, .75f, true),
             quart = new LinkedHashMap<>(256, .75f, true);
     private final Object2DoubleMap<T>[] column;
@@ -123,10 +125,20 @@ final class HeightWeights<T> {
                 double w =
                         kernel.values()[
                                 dx + kernel.radius() + (dz + kernel.radius()) * kernel.width()];
-                values.mergeDouble(source.get(x + dx * stride, z + dz * stride), w, Double::sum);
+                values.mergeDouble(sample(x + dx * stride, z + dz * stride), w, Double::sum);
             }
         }
         return values;
+    }
+
+    private T sample(int x, int z) {
+        long key = key(x, z);
+        T value = samples.get(key);
+        if (value == null) {
+            value = source.get(x, z);
+            samples.put(key, value);
+        }
+        return value;
     }
 
     private static long key(int x, int z) {

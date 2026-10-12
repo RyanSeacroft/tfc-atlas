@@ -68,7 +68,7 @@ public final class ClimateZones {
     }
 
     public static String displayList(String value) {
-        return Arrays.stream(value.split(",", -1))
+        return Arrays.stream(value.split("[,\\r\\n]+", -1))
                 .map(
                         v -> {
                             if (v.isBlank()) {

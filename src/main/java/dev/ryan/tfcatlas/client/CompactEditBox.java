@@ -17,6 +17,7 @@ final class CompactEditBox extends AbstractWidget {
     private final EditBox input;
     private final Font font;
     private boolean previewScrolled;
+    private int savedDisplayPos;
     private final List<String> options;
 
     CompactEditBox(
@@ -32,7 +33,8 @@ final class CompactEditBox extends AbstractWidget {
                         Math.max(8, (int) (width / SCALE) - 2),
                         Math.max(10, (int) (height / SCALE) - 2),
                         label);
-        input.setMaxLength(256);
+        // Expanded biome groups can contain dozens of editable names.
+        input.setMaxLength(options.isEmpty() ? 256 : 8192);
         input.setCanLoseFocus(true);
     }
 
@@ -81,17 +83,21 @@ final class CompactEditBox extends AbstractWidget {
                         : null;
         var viewport = (dev.ryan.tfcatlas.mixin.EditBoxAccessor) (Object) input;
         if (suffix != null) {
+            if (!previewScrolled) {
+                savedDisplayPos = viewport.tfcatlas$displayPos();
+            }
             // Scroll as though the completion is already present, without changing the value or
             // caret.
             String preview = value() + suffix;
             int start =
                     preview.length()
-                            - font.plainSubstrByWidth(preview, input.getInnerWidth() - 2, true)
+                            - font.plainSubstrByWidth(
+                                            preview, Math.max(1, input.getInnerWidth() - 8), true)
                                     .length();
             viewport.tfcatlas$displayPos(Math.min(value().length(), start));
             previewScrolled = true;
         } else if (previewScrolled) {
-            viewport.tfcatlas$displayPos(0);
+            viewport.tfcatlas$displayPos(Math.min(value().length(), savedDisplayPos));
             input.setCursorPosition(input.getCursorPosition());
             previewScrolled = false;
         }
@@ -130,11 +136,29 @@ final class CompactEditBox extends AbstractWidget {
                 return true;
             }
         }
+        restorePreview();
         return input.keyPressed(key, scan, modifiers);
+    }
+
+    private void restorePreview() {
+        if (previewScrolled) {
+            var viewport = (dev.ryan.tfcatlas.mixin.EditBoxAccessor) (Object) input;
+            viewport.tfcatlas$displayPos(Math.min(value().length(), savedDisplayPos));
+            previewScrolled = false;
+            input.setSuggestion(null);
+            input.setCursorPosition(input.getCursorPosition());
+        }
+    }
+
+    @Override
+    public boolean mouseDragged(double x, double y, int button, double dx, double dy) {
+        return input.mouseDragged(
+                (x - getX()) / SCALE, (y - getY()) / SCALE, button, dx / SCALE, dy / SCALE);
     }
 
     @Override
     public boolean charTyped(char character, int modifiers) {
+        restorePreview();
         return input.charTyped(character, modifiers);
     }
 

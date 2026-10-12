@@ -134,7 +134,7 @@ public final class TerrainAndTooltipTest {
                 surface.equals(List.of(new TerrainCoverage.Rect(0, 0, 16, 16)))
                         && underground.equals(List.of(new TerrainCoverage.Rect(32, 16, 48, 32))),
                 "Cave coverage comes from the selected cave layer, independently of saved surface exploration");
-        var view = new XaeroBridge.View(32, 32, 1, "test", true, true, p, 32, 32);
+        var view = new XaeroBridge.View(32, 32, 1, 1, "test", true, true, p, 32, 32);
         check(
                 mask.coverage(view, 64, 64).equals(surface),
                 "Surface imagery uses surface discoveries");

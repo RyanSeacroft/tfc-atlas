@@ -8,6 +8,7 @@ import dev.ryan.tfcatlas.core.Cell;
 import dev.ryan.tfcatlas.core.DikeCoverage;
 import dev.ryan.tfcatlas.core.HoverCell;
 import dev.ryan.tfcatlas.core.HoverHeight;
+import dev.ryan.tfcatlas.core.Layer;
 import dev.ryan.tfcatlas.core.NearestMatches;
 import dev.ryan.tfcatlas.core.RockLayer;
 import dev.ryan.tfcatlas.core.RockPossibilities;
@@ -40,9 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.dries007.tfc.world.ChunkGeneratorExtension;
@@ -75,6 +74,68 @@ public final class RegionEngine implements AutoCloseable {
     private final HoverHeight hoverHeight;
     private final HoverCell hoverCell;
     private TerrainHeightSampler hoverSampler;
+    private NearbyWater searchWater;
+    private NearbyWater hoverWater;
+    private final Map<Long, LocalInfo> localInfo = new LinkedHashMap<>(128, .75f, true);
+
+    public record LocalInfo(double river, double ocean, double slope) {}
+
+    public LocalInfo localInfo(int x, int z) {
+        synchronized (localInfo) {
+            return localInfo.get(((long) x << 32) | (z & 0xffffffffL));
+        }
+    }
+
+    private void collectLocalInfo(int x, int z) {
+        if (closed) {
+            return;
+        }
+        LocalInfo info;
+        try {
+            if (hoverWater == null) {
+                hoverWater = new NearbyWater(generator);
+            }
+            Cell cell = fine.sample(x, z);
+            var water = hoverWater.sample(x, z, !cell.land(), cell.river());
+            info =
+                    new LocalInfo(
+                            water.river(),
+                            water.ocean(),
+                            dev.ryan.tfcatlas.core.TerrainSlope.sample(x, z, hoverSampler::sample));
+        } catch (RuntimeException failure) {
+            info = new LocalInfo(Double.NaN, Double.NaN, Double.NaN);
+        }
+        synchronized (localInfo) {
+            if (closed) {
+                return;
+            }
+            localInfo.put(((long) x << 32) | (z & 0xffffffffL), info);
+            while (localInfo.size() > 1024) {
+                localInfo.remove(localInfo.keySet().iterator().next());
+            }
+        }
+    }
+
+    private boolean matchesLocal(SearchQuery query, int x, int z, Cell cell) {
+        var limits = query.limits();
+        if (limits.slope()) {
+            double slope = dev.ryan.tfcatlas.core.TerrainSlope.sample(x, z, heights::sample);
+            if (slope < limits.minSlope() || slope > limits.maxSlope()) {
+                return false;
+            }
+        }
+        if (limits.water()) {
+            if (searchWater == null) {
+                searchWater = new NearbyWater(generator);
+            }
+            var water = searchWater.sample(x, z, !cell.land(), cell.river());
+            if (!limits.matchesWater(water.river(), water.ocean())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private final ExecutorService hoverWorker =
             Executors.newSingleThreadExecutor(
                     r -> {
@@ -116,19 +177,12 @@ public final class RegionEngine implements AutoCloseable {
     }
 
     private static final int TILE_WORKERS =
-            Math.max(1, Math.min(2, Runtime.getRuntime().availableProcessors() - 1));
-    private final ThreadPoolExecutor worker =
-            new ThreadPoolExecutor(
-                    TILE_WORKERS,
-                    TILE_WORKERS,
-                    30,
-                    TimeUnit.SECONDS,
-                    new LinkedBlockingQueue<>(512),
-                    r -> {
-                        Thread t = new Thread(r, "TFC Atlas tiles");
-                        t.setDaemon(true);
-                        return t;
-                    });
+            dev.ryan.tfcatlas.core.GenerationBudget.workers(
+                    Runtime.getRuntime().availableProcessors());
+    private final dev.ryan.tfcatlas.core.TileQueue worker =
+            new dev.ryan.tfcatlas.core.TileQueue(TILE_WORKERS, "TFC Atlas tiles");
+    private final dev.ryan.tfcatlas.core.TileQueue cacheReader =
+            new dev.ryan.tfcatlas.core.TileQueue(2, "TFC Atlas cached tiles");
     private final ExecutorService searchWorker =
             Executors.newSingleThreadExecutor(
                     r -> {
@@ -137,7 +191,7 @@ public final class RegionEngine implements AutoCloseable {
                         return t;
                     });
     private final Map<Tile.Key, Tile> tiles = new LinkedHashMap<>(128, .75f, true);
-    private final Set<Tile.Key> pending = ConcurrentHashMap.newKeySet();
+    private final Map<Tile.Key, Boolean> pending = new ConcurrentHashMap<>();
     private final TileRetries retries = new TileRetries();
 
     public String statusText() {
@@ -170,6 +224,102 @@ public final class RegionEngine implements AutoCloseable {
     public volatile SearchOverlay searchOverlay = SearchOverlay.EMPTY;
     public volatile int searchX, searchZ, searchRadius;
     public volatile boolean searching;
+
+    private Future<?> closestTask;
+    private SearchOverlay closestOverlay;
+    private int closestX, closestZ;
+
+    /** Re-rank all completed coverage off the UI thread when the player changes position. */
+    public synchronized void updateClosestResults(int playerX, int playerZ) {
+        SearchOverlay overlay = searchOverlay;
+        SearchDetails details = searchDetails;
+        if (closed
+                || searching
+                || !overlay.complete()
+                || details == null
+                || overlay.count() == 0
+                || closestTask != null && !closestTask.isDone()) {
+            return;
+        }
+        if (closestOverlay == overlay && closestX == playerX && closestZ == playerZ) {
+            return;
+        }
+        int serial = searchSerial.get();
+        closestTask =
+                searchWorker.submit(
+                        () -> {
+                            try {
+                                List<SearchQuery.Result> current = new ArrayList<>();
+                                for (var point :
+                                        overlay.closestTo(
+                                                playerX,
+                                                playerZ,
+                                                Math.min(5, details.limit()),
+                                                details.spacing())) {
+                                    if (closed || serial != searchSerial.get()) {
+                                        return;
+                                    }
+                                    // Reuse metadata when only the distance changed. Other
+                                    // locations are sampled
+                                    // on the same worker that owns the height/dike search samplers.
+                                    SearchQuery.Result previous =
+                                            results.stream()
+                                                    .filter(
+                                                            r ->
+                                                                    r.x() == point.x()
+                                                                            && r.z() == point.z())
+                                                    .findFirst()
+                                                    .orElse(null);
+                                    if (previous != null) {
+                                        current.add(
+                                                new SearchQuery.Result(
+                                                        point.x(),
+                                                        point.z(),
+                                                        point.distance(),
+                                                        previous.cell(),
+                                                        previous.surfaceY(),
+                                                        point.layerMask(),
+                                                        previous.dikeY()));
+                                    } else {
+                                        current.add(resultAt(point, details.query()));
+                                    }
+                                }
+                                synchronized (this) {
+                                    if (!closed
+                                            && serial == searchSerial.get()
+                                            && searchOverlay == overlay) {
+                                        results = List.copyOf(current);
+                                        closestOverlay = overlay;
+                                        closestX = playerX;
+                                        closestZ = playerZ;
+                                    }
+                                }
+                            } catch (java.util.concurrent.CancellationException ignored) {
+                            } catch (Exception error) {
+                                com.mojang.logging.LogUtils.getLogger()
+                                        .warn(
+                                                "Atlas could not update closest search results",
+                                                error);
+                            }
+                        });
+    }
+
+    private SearchQuery.Result resultAt(NearestMatches.Point point, SearchQuery query)
+            throws Exception {
+        Cell cell = load(point.key()).atBlock(point.x(), point.z());
+        DikeSampler.Hit hit = query.dikes() ? dikes.at(point.x(), point.z(), query) : null;
+        if (hit != null) {
+            cell = cell.withRock(hit.rock());
+        }
+        return new SearchQuery.Result(
+                point.x(),
+                point.z(),
+                point.distance(),
+                cell,
+                query.heightRestricted() ? heights.sample(point.x(), point.z()) : null,
+                point.layerMask(),
+                hit == null ? null : hit.y());
+    }
 
     private record DiskEntry(long size, long modified) {}
 
@@ -305,7 +455,11 @@ public final class RegionEngine implements AutoCloseable {
                                         new TerrainHeightSampler(
                                                 seed, source, settings, registry, chunks);
                             }
-                            return hoverSampler.sample(x, z);
+                            int y = hoverSampler.sample(x, z);
+                            // Publish height first; the extra cursor data stays off the render
+                            // thread.
+                            hoverWorker.execute(() -> collectLocalInfo(x, z));
+                            return y;
                         });
         fine = new FineSampler(generator, heights.source, chunks, settings.temperatureScale());
         hoverCell =
@@ -366,7 +520,7 @@ public final class RegionEngine implements AutoCloseable {
                         TILE_WORKERS,
                         retries);
         if (disk) {
-            worker.execute(
+            cacheReader.execute(
                     () -> {
                         try {
                             synchronized (diskLock) {
@@ -463,7 +617,9 @@ public final class RegionEngine implements AutoCloseable {
                         "Background saves this session: %,d · with map closed: %,d",
                         backgroundWrites.get(),
                         closedMapWrites.get()),
-                "All 8 layers · 256-block overview · 512,000-block radius; zoomed detail loads on demand");
+                "All "
+                        + Layer.values().length
+                        + " layers · 256-block overview · 512,000-block radius; zoomed detail loads on demand");
     }
 
     public Tile peek(Tile.Key key) {
@@ -482,25 +638,64 @@ public final class RegionEngine implements AutoCloseable {
         return pending.size();
     }
 
+    public int pendingCachedCount() {
+        return (int) pending.values().stream().filter(Boolean::booleanValue).count();
+    }
+
+    public int pendingCount(TileWindow window, boolean cachedReads) {
+        return (int)
+                pending.entrySet().stream()
+                        .filter(
+                                entry ->
+                                        window.contains(entry.getKey())
+                                                && entry.getValue() == cachedReads)
+                        .count();
+    }
+
+    public boolean saved(Tile.Key key) {
+        return disk
+                && (diskFiles.contains(key.fileName())
+                        || !diskIndexed && Files.isRegularFile(directory.resolve(key.fileName())));
+    }
+
     public boolean failed(Tile.Key key) {
         return retries.deferred(key);
     }
 
     private final class TileJob implements Runnable {
         final Tile.Key key;
+        final boolean cachedOnly, gapPreview;
 
-        TileJob(Tile.Key key) {
+        TileJob(Tile.Key key, boolean cachedOnly, boolean gapPreview) {
             this.key = key;
+            this.cachedOnly = cachedOnly;
+            this.gapPreview = gapPreview;
         }
 
         public void run() {
+            boolean handedOff = false;
+            java.util.function.BooleanSupplier obsolete =
+                    () -> {
+                        VisibleTiles v = visibleTiles;
+                        return closed || !mapActive || v != null && !v.contains(key);
+                    };
             try {
-                load(
-                        key,
-                        () -> {
-                            VisibleTiles v = visibleTiles;
-                            return !mapActive || v != null && !v.contains(key);
-                        });
+                if (obsolete.getAsBoolean()) {
+                    return;
+                }
+                if (cachedOnly) {
+                    Tile tile = readCached(key);
+                    if (tile != null) {
+                        remember(tile);
+                        retries.succeeded(key);
+                    } else if (!obsolete.getAsBoolean()) {
+                        // A removed or corrupt cache entry needs regeneration. It must not
+                        // turn a fast disk-reader thread into another terrain worker.
+                        handedOff = queueGeneration(key, gapPreview);
+                    }
+                } else {
+                    load(key, obsolete);
+                }
             } catch (ObsoleteTile ignored) {
             } catch (Exception e) {
                 if (!closed && !Thread.currentThread().isInterrupted()) {
@@ -508,7 +703,9 @@ public final class RegionEngine implements AutoCloseable {
                     tileError(key, e);
                 }
             } finally {
-                pending.remove(key);
+                if (!handedOff) {
+                    pending.remove(key);
+                }
             }
         }
     }
@@ -523,21 +720,29 @@ public final class RegionEngine implements AutoCloseable {
         mapActive = true;
         VisibleTiles visible = new VisibleTiles(window, detail, preview);
         visibleTiles = visible;
-        worker.getQueue()
-                .removeIf(
-                        job -> {
-                            if (job instanceof TileJob t && !visible.contains(t.key)) {
-                                pending.remove(t.key);
-                                return true;
-                            }
-                            return false;
-                        });
-        List<Runnable> queued = new ArrayList<>();
-        worker.getQueue().drainTo(queued);
-        queued.sort(
-                Comparator.comparingDouble(
-                        job -> job instanceof TileJob t ? window.distanceSquared(t.key) : -1));
-        worker.getQueue().addAll(queued);
+        java.util.function.Predicate<Runnable> obsolete =
+                job -> {
+                    if (job instanceof TileJob t && !visible.contains(t.key)) {
+                        pending.remove(t.key);
+                        return true;
+                    }
+                    return false;
+                };
+        Comparator<Runnable> order =
+                Comparator.<Runnable>comparingInt(
+                                job ->
+                                        job instanceof TileJob t
+                                                ? (t.gapPreview
+                                                        ? -1
+                                                        : window.contains(t.key) ? 0 : 1)
+                                                : 2)
+                        .thenComparingDouble(
+                                job ->
+                                        job instanceof TileJob t
+                                                ? window.distanceSquared(t.key)
+                                                : Double.MAX_VALUE);
+        worker.prioritize(obsolete, order);
+        cacheReader.prioritize(obsolete, order);
     }
 
     public void mapClosed() {
@@ -545,26 +750,85 @@ public final class RegionEngine implements AutoCloseable {
             return;
         }
         mapActive = false;
-        worker.getQueue()
-                .removeIf(
-                        job -> {
-                            if (job instanceof TileJob tile) {
-                                pending.remove(tile.key);
-                                return true;
-                            }
-                            return false;
-                        });
+        for (var queue : List.of(worker, cacheReader)) {
+            queue.getQueue()
+                    .removeIf(
+                            job -> {
+                                if (job instanceof TileJob tile) {
+                                    pending.remove(tile.key);
+                                    return true;
+                                }
+                                return false;
+                            });
+        }
     }
 
     public void request(Tile.Key key) {
-        if (closed || peek(key) != null || retries.deferred(key) || !pending.add(key)) {
+        request(key, false);
+    }
+
+    public void requestPreview(Tile.Key key) {
+        request(key, true);
+    }
+
+    private void request(Tile.Key key, boolean gapPreview) {
+        if (closed || peek(key) != null || retries.deferred(key)) {
+            return;
+        }
+        boolean saved = saved(key);
+        if (pending.putIfAbsent(key, saved) != null) {
             return;
         }
         try {
-            worker.execute(new TileJob(key));
+            if (saved) {
+                cacheReader.execute(new TileJob(key, true, gapPreview));
+            } else if (!queueGeneration(key, gapPreview)) {
+                pending.remove(key);
+            }
         } catch (RejectedExecutionException e) {
             pending.remove(key);
         }
+    }
+
+    private boolean queueGeneration(Tile.Key key, boolean gapPreview) {
+        // Corrupt cached previews obey the same one-job bound as an initially missing preview.
+        synchronized (pending) {
+            VisibleTiles visible = visibleTiles;
+            if (gapPreview
+                    && visible != null
+                    && visible.main.step() != key.step()
+                    && pending.entrySet().stream()
+                            .anyMatch(
+                                    e ->
+                                            !e.getKey().equals(key)
+                                                    && e.getKey().step() == key.step()
+                                                    && !e.getValue())) {
+                return false;
+            }
+            pending.put(key, false);
+        }
+        worker.execute(new TileJob(key, false, gapPreview));
+        return true;
+    }
+
+    private record OverviewRocks(String top, String middle, String bottom) {}
+
+    private final ThreadLocal<dev.ryan.tfcatlas.core.SampleCache<OverviewRocks>> overviewRocks =
+            ThreadLocal.withInitial(() -> new dev.ryan.tfcatlas.core.SampleCache<>(512));
+
+    private OverviewRocks overviewRocks(int code) {
+        var cache = overviewRocks.get();
+        OverviewRocks rocks = cache.get(code);
+        if (rocks == null) {
+            var strata = settings.rockLayerSettings().sampler(code);
+            rocks =
+                    new OverviewRocks(
+                            BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString(),
+                            BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString(),
+                            BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString());
+            cache.put(code, rocks);
+        }
+        return rocks;
     }
 
     private Tile load(Tile.Key key) throws IOException {
@@ -597,30 +861,7 @@ public final class RegionEngine implements AutoCloseable {
         if (closed || Thread.currentThread().isInterrupted()) {
             throw new InterruptedIOException();
         }
-        Tile tile = null;
-        Path path = directory.resolve(key.fileName());
-        if (disk && Files.isRegularFile(path)) {
-            try {
-                tile = Tile.read(path, key);
-                if (tile.cells()[0].soil() == dev.ryan.tfcatlas.core.Soil.UNKNOWN) {
-                    // Upgrade the climate/soil fields without regenerating existing terrain tiles.
-                    for (int i = 0; i < tile.cells().length; i++) {
-                        if (obsolete.getAsBoolean() || closed) {
-                            throw new ObsoleteTile();
-                        }
-                        int spacing = Tile.GRID * key.step();
-                        tile.cells()[i] =
-                                fine.climate(
-                                        tile.cells()[i],
-                                        key.blockX() + (i % Tile.SIDE) * spacing + spacing / 2,
-                                        key.blockZ() + (i / Tile.SIDE) * spacing + spacing / 2);
-                    }
-                    tile.write(path);
-                }
-                diskReads.incrementAndGet();
-            } catch (IOException ignored) {
-            }
-        }
+        Tile tile = readCached(key);
         if (tile == null) {
             Cell[] cells = new Cell[Tile.SIDE * Tile.SIDE];
             for (int z = 0; z < Tile.SIDE; z++) {
@@ -643,10 +884,8 @@ public final class RegionEngine implements AutoCloseable {
                     }
                     Region.Point point =
                             overview.point(Math.floorDiv(bx, 128), Math.floorDiv(bz, 128));
-                    var strata = settings.rockLayerSettings().sampler(point.rock);
-                    String rock = BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString(),
-                            middle = BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString(),
-                            bottom = BuiltInRegistries.BLOCK.getKey(strata.next().raw()).toString();
+                    var column = overviewRocks(point.rock);
+                    String rock = column.top(), middle = column.middle(), bottom = column.bottom();
                     String biome =
                             TFCLayers.getFromLayerId(point.biome).key().location().toString();
                     cells[x + z * Tile.SIDE] =
@@ -699,6 +938,20 @@ public final class RegionEngine implements AutoCloseable {
         }
         retries.succeeded(key);
         return tile;
+    }
+
+    private Tile readCached(Tile.Key key) {
+        Path path = directory.resolve(key.fileName());
+        if (disk && Files.isRegularFile(path)) {
+            try {
+                Tile tile = Tile.read(path, key);
+                diskReads.incrementAndGet();
+                return tile;
+            } catch (IOException ignored) {
+                // The caller schedules regeneration on the terrain queue.
+            }
+        }
+        return null;
     }
 
     private void writeDisk(Tile tile, boolean background) throws IOException {
@@ -822,6 +1075,19 @@ public final class RegionEngine implements AutoCloseable {
             int spacing,
             int resolution,
             boolean automatic) {
+        search(query, centerX, centerZ, radius, limit, spacing, resolution, automatic, Map.of());
+    }
+
+    public synchronized void search(
+            SearchQuery query,
+            int centerX,
+            int centerZ,
+            int radius,
+            int limit,
+            int spacing,
+            int resolution,
+            boolean automatic,
+            Map<String, String> selections) {
         Sampling.searchResolution(Integer.toString(resolution), radius);
         SearchProgress progress = new SearchProgress(false, query.heightRestricted());
         cancelSearch();
@@ -830,7 +1096,8 @@ public final class RegionEngine implements AutoCloseable {
         searchOverlay = SearchOverlay.EMPTY;
         activeQuery = query;
         searchDetails =
-                new SearchDetails(query, centerX, centerZ, radius, limit, spacing, resolution);
+                new SearchDetails(
+                        query, centerX, centerZ, radius, limit, spacing, resolution, selections);
         searchX = centerX;
         searchZ = centerZ;
         searchRadius = radius;
@@ -859,6 +1126,17 @@ public final class RegionEngine implements AutoCloseable {
                                 for (Tile.Key key : keys) {
                                     if (closed || serial != searchSerial.get()) {
                                         return;
+                                    }
+                                    if (!SearchWindow.intersectsRadius(
+                                            key, centerX, centerZ, radius)) {
+                                        searchProgress(
+                                                serial,
+                                                progress.update(
+                                                        ++done * 1024,
+                                                        keys.count() * 1024,
+                                                        matches,
+                                                        System.nanoTime() / 1_000_000));
+                                        continue;
                                     }
                                     Tile tile = load(key);
                                     for (int i = 0; i < tile.cells().length; i++) {
@@ -902,6 +1180,9 @@ public final class RegionEngine implements AutoCloseable {
                                             if (y != null && !query.matchesHeight(y)) {
                                                 continue;
                                             }
+                                            if (!matchesLocal(query, x, z, c)) {
+                                                continue;
+                                            }
                                             if (query.dikes()) {
                                                 var hit = dikes.at(x, z, query);
                                                 if (hit == null) {
@@ -938,10 +1219,14 @@ public final class RegionEngine implements AutoCloseable {
                                                     keys.count() * 1024,
                                                     matches,
                                                     System.nanoTime() / 1_000_000));
-                                    if (live.changed() && System.nanoTime() >= nextPublish) {
+                                    if (done < keys.count()
+                                            && live.changed()
+                                            && System.nanoTime() >= nextPublish) {
                                         nextPublish = publishLive(serial, live);
                                     }
                                 }
+                                searchProgress(
+                                        serial, "Sampling complete · finalising highlights…");
                                 SearchOverlay partial = live.publish(List.of(), false);
                                 synchronized (this) {
                                     if (serial != searchSerial.get()) {
@@ -950,6 +1235,12 @@ public final class RegionEngine implements AutoCloseable {
                                     searchOverlay = partial;
                                     searchStatus = "Finalising closest matches and distinct areas…";
                                 }
+                                dev.ryan.tfcatlas.core.SearchAreas.retainRange(
+                                        matched,
+                                        query.limits().minArea(),
+                                        query.limits().maxArea(),
+                                        live::changed);
+                                searchProgress(serial, "Selecting the closest matching locations…");
                                 List<SearchQuery.Result> closest = new ArrayList<>();
                                 for (var point :
                                         NearestMatches.select(
@@ -957,27 +1248,10 @@ public final class RegionEngine implements AutoCloseable {
                                     if (closed || serial != searchSerial.get()) {
                                         return;
                                     }
-                                    Cell cell = load(point.key()).atBlock(point.x(), point.z());
-                                    DikeSampler.Hit hit =
-                                            query.dikes()
-                                                    ? dikes.at(point.x(), point.z(), query)
-                                                    : null;
-                                    if (hit != null) {
-                                        cell = cell.withRock(hit.rock());
-                                    }
-                                    closest.add(
-                                            new SearchQuery.Result(
-                                                    point.x(),
-                                                    point.z(),
-                                                    point.distance(),
-                                                    cell,
-                                                    query.heightRestricted()
-                                                            ? heights.sample(point.x(), point.z())
-                                                            : null,
-                                                    point.layerMask(),
-                                                    hit == null ? null : hit.y()));
+                                    closest.add(resultAt(point, query));
                                 }
                                 List<SearchQuery.Result> finalResults = List.copyOf(closest);
+                                searchProgress(serial, "Counting distinct matching areas…");
                                 SearchOverlay overlay = live.publish(finalResults, true);
                                 String advice =
                                         SearchWorkload.advice(
@@ -994,10 +1268,13 @@ public final class RegionEngine implements AutoCloseable {
                                         searchOverlay = overlay;
                                         searchAdvice = advice;
                                         results = finalResults;
+                                        closestOverlay = overlay;
+                                        closestX = centerX;
+                                        closestZ = centerZ;
                                         searchStatus =
                                                 overlay.areaCount()
                                                         + " total distinct areas · "
-                                                        + matches
+                                                        + overlay.count()
                                                         + " matching cells";
                                     }
                                 }
@@ -1013,6 +1290,13 @@ public final class RegionEngine implements AutoCloseable {
                                 synchronized (this) {
                                     if (serial == searchSerial.get()) {
                                         searching = false;
+                                        if (!searchOverlay.complete()
+                                                && !searchStatus.startsWith("Search failed:")) {
+                                            searchStatus =
+                                                    "Search stopped before finalisation · partial highlights kept";
+                                            searchAdvice =
+                                                    "Run the search again to finish, or Clear to remove partial results.";
+                                        }
                                     }
                                 }
                             }
@@ -1057,7 +1341,9 @@ public final class RegionEngine implements AutoCloseable {
                     if (dikes.at(x, z, query) == null) {
                         return false;
                     }
-                    return query.matchesRegion(fine.sample(x, z))
+                    Cell cell = fine.sample(x, z);
+                    return query.matchesRegion(cell)
+                            && matchesLocal(query, x, z, cell)
                             && (!query.heightRestricted()
                                     || query.matchesHeight(heights.sample(x, z)));
                 },
@@ -1072,6 +1358,11 @@ public final class RegionEngine implements AutoCloseable {
 
     public synchronized void cancelSearch() {
         searchSerial.incrementAndGet();
+        if (closestTask != null) {
+            closestTask.cancel(true);
+            closestTask = null;
+        }
+        closestOverlay = null;
         if (searchTask != null) {
             searchTask.cancel(true);
         }
@@ -1127,17 +1418,39 @@ public final class RegionEngine implements AutoCloseable {
                     try {
                         java.awt.image.BufferedImage image =
                                 new java.awt.image.BufferedImage(
-                                        256, 256, java.awt.image.BufferedImage.TYPE_INT_RGB);
-                        int startX = Math.floorDiv(centerX, 128) * 128 - 16384,
-                                startZ = Math.floorDiv(centerZ, 128) * 128 - 16384;
-                        for (int z = 0; z < 256; z++) {
-                            for (int x = 0; x < 256; x++) {
+                                        p.exportPixels,
+                                        p.exportPixels,
+                                        p.exportTransparentOcean
+                                                ? java.awt.image.BufferedImage.TYPE_INT_ARGB
+                                                : java.awt.image.BufferedImage.TYPE_INT_RGB);
+                        int span = p.exportPixels * p.exportStep;
+                        int startX = centerX - span / 2, startZ = centerZ - span / 2;
+                        for (int z = 0; z < p.exportPixels; z++) {
+                            for (int x = 0; x < p.exportPixels; x++) {
                                 if (closed) {
                                     return;
                                 }
-                                int bx = startX + x * 128, bz = startZ + z * 128;
-                                Tile tile = load(Tile.Key.at(bx, bz, 128 / Tile.GRID));
-                                image.setRGB(x, z, p.mapColor(tile.atBlock(bx, bz)));
+                                int
+                                        bx =
+                                                Math.max(
+                                                        -29_999_984,
+                                                        Math.min(
+                                                                29_999_984,
+                                                                startX + x * p.exportStep)),
+                                        bz =
+                                                Math.max(
+                                                        -29_999_984,
+                                                        Math.min(
+                                                                29_999_984,
+                                                                startZ + z * p.exportStep));
+                                Tile tile = load(Tile.Key.at(bx, bz, p.exportStep / Tile.GRID));
+                                Cell cell = tile.atBlock(bx, bz);
+                                image.setRGB(
+                                        x,
+                                        z,
+                                        p.exportTransparentOcean && !cell.land()
+                                                ? 0
+                                                : 0xFF000000 | p.mapColor(cell));
                             }
                         }
                         Path dir =
@@ -1159,21 +1472,27 @@ public final class RegionEngine implements AutoCloseable {
                                         + System.currentTimeMillis();
                         Path out = dir.resolve(name + ".png");
                         javax.imageio.ImageIO.write(image, "png", out.toFile());
-                        Files.writeString(
-                                dir.resolve(name + ".txt"),
-                                "TFC Atlas region preview\nSeed: "
-                                        + SeedPrivacy.exportValue(seed, hideSeed)
-                                        + "\nLayer: "
-                                        + p.layerTitle()
-                                        + "\nTop-left X/Z: "
-                                        + startX
-                                        + ", "
-                                        + startZ
-                                        + "\n128 blocks per pixel; width 32768 blocks\nRainfall in mm; temperature is annual mean in degrees C. Biome altitude shows terrain classes, not Y.\nContinents on climate / rocks: "
-                                        + (p.climateContinents
-                                                ? "On (separate ocean colour)"
-                                                : "Off")
-                                        + "\n");
+                        if (p.exportMetadata) {
+                            Files.writeString(
+                                    dir.resolve(name + ".txt"),
+                                    "TFC Atlas region preview\nSeed: "
+                                            + SeedPrivacy.exportValue(seed, hideSeed)
+                                            + "\nLayer: "
+                                            + p.layerTitle()
+                                            + "\nTop-left X/Z: "
+                                            + startX
+                                            + ", "
+                                            + startZ
+                                            + "\n"
+                                            + p.exportStep
+                                            + " blocks per pixel; width "
+                                            + span
+                                            + " blocks\nRainfall in mm; temperature is annual mean in degrees C. Biome altitude shows terrain classes, not Y.\nContinents on climate / rocks: "
+                                            + (p.climateContinents
+                                                    ? "On (separate ocean colour)"
+                                                    : "Off")
+                                            + "\n");
+                        }
                         Minecraft.getInstance()
                                 .execute(
                                         () ->
@@ -1192,6 +1511,7 @@ public final class RegionEngine implements AutoCloseable {
 
     public void awaitStopped() throws InterruptedException {
         if (!worker.awaitTermination(30, TimeUnit.SECONDS)
+                || !cacheReader.awaitTermination(30, TimeUnit.SECONDS)
                 || !searchWorker.awaitTermination(30, TimeUnit.SECONDS)
                 || !hoverWorker.awaitTermination(30, TimeUnit.SECONDS)) {
             throw new IllegalStateException(
@@ -1206,6 +1526,7 @@ public final class RegionEngine implements AutoCloseable {
         hoverHeight.close();
         hoverCell.close();
         worker.shutdownNow();
+        cacheReader.shutdownNow();
         searchWorker.shutdownNow();
         hoverWorker.shutdownNow();
         synchronized (tiles) {

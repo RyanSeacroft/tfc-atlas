@@ -45,6 +45,7 @@ tasks.register('coreTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'dev.ryan.tfcatlas.core.CoreTest'
+    javaLauncher = javaToolchains.launcherFor(java.toolchain)
     enableAssertions = true
 }
 tasks.named('check') { dependsOn tasks.named('coreTest') }

@@ -23,6 +23,23 @@ public final class CoreTest {
     }
 
     public static void main(String[] args) throws Exception {
+        SearchRefinementTest.run();
+        SelectionUiTest.run();
+        MirroredGroupsTest.run();
+        CustomGroupsTest.run();
+        dev.ryan.tfcatlas.client.KeyScrollbarTest.run();
+        dev.ryan.tfcatlas.client.SavedGroupsTest.run();
+        MenuRefinementTest.run();
+        AreaAndOutlineTest.run();
+        ZoomAndPresetTest.run();
+        LiveResultsTest.run();
+        LoadingAndSummaryTest.run();
+        PanelLoadingTest.run();
+        GenerationFixTest.run();
+        dev.ryan.tfcatlas.client.FamilyAuditTest.run();
+        dev.ryan.tfcatlas.client.GroupSearchTest.run();
+        dev.ryan.tfcatlas.client.BiomeGroupsTest.run();
+        dev.ryan.tfcatlas.client.KaolinBiomesTest.run();
         dev.ryan.tfcatlas.client.SearchPerformanceTest.run();
         SeedRecoveryTest.run();
         ExploredViewTest.run();
@@ -41,6 +58,7 @@ public final class CoreTest {
         dev.ryan.tfcatlas.client.CoverageTest.run();
         dev.ryan.tfcatlas.client.DisplayTest.run();
         dev.ryan.tfcatlas.client.SamplingTest.run();
+        dev.ryan.tfcatlas.client.SamplingReuseTest.run();
         OverviewTest.run();
         dev.ryan.tfcatlas.client.PolishTest.run();
         Cell granite = cell("tfc:rock/raw/granite", "tfc:plains", 3, 300, 20);

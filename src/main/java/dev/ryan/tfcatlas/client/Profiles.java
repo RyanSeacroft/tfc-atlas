@@ -51,6 +51,7 @@ public final class Profiles {
     }
 
     public static Profile load(String world) {
+        SavedGroups.load();
         Path p = root().resolve("profiles/" + hash(world) + ".json");
         try {
             if (Files.exists(p)) {
@@ -135,14 +136,30 @@ public final class Profiles {
         profile.searchRevision = 2;
         profile.climateZones =
                 dev.ryan.tfcatlas.core.ClimateZones.displayList(profile.climateZones);
-        profile.uiRevision = 6;
+        // New defaults replace unchanged old defaults; deliberate panel resizing stays saved.
+        if (!stored.has("uiRevision") || stored.get("uiRevision").getAsInt() < 9) {
+            if (stored.has("infoScale") && (profile.infoScale == .5 || profile.infoScale == .345)) {
+                profile.infoScale = dev.ryan.tfcatlas.core.DefaultHud.INFO_SCALE;
+            }
+            if (stored.has("criteriaScale") && profile.criteriaScale == .5) {
+                profile.criteriaScale = dev.ryan.tfcatlas.core.DefaultHud.SEARCH_SCALE;
+            }
+        }
+        profile.uiRevision = 9;
         profile.validate();
         return profile;
     }
 
     /** Presets contain search inputs only, never the session seed or nested presets. */
     public static String preset(Profile profile) {
-        return JSON.toJson(searchFields(JSON.toJsonTree(profile).getAsJsonObject()));
+        JsonObject snapshot = searchFields(JSON.toJsonTree(profile).getAsJsonObject());
+        for (String field : java.util.List.of("biomes", "rocks", "climateZones")) {
+            if (snapshot.has(field)) {
+                snapshot.addProperty(
+                        field, SavedGroups.snapshot(field, snapshot.get(field).getAsString()));
+            }
+        }
+        return JSON.toJson(snapshot);
     }
 
     private static JsonObject searchFields(JsonObject source) {
@@ -154,6 +171,20 @@ public final class Profiles {
                     "maxGroundwater",
                     "rocks",
                     "biomes",
+                    "biomeGroups",
+                    "rockGroups",
+                    "climateGroups",
+                    "soils",
+                    "minRiver",
+                    "maxRiver",
+                    "minOcean",
+                    "maxOcean",
+                    "minSlope",
+                    "maxSlope",
+                    "minInland",
+                    "maxInland",
+                    "minArea",
+                    "maxArea",
                     "categories",
                     "feature",
                     "minRain",

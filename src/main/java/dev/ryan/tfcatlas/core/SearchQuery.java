@@ -22,7 +22,41 @@ public record SearchQuery(
         String rockLayer,
         Set<String> climateZones,
         float minGroundwater,
-        float maxGroundwater) {
+        float maxGroundwater,
+        SearchLimits limits) {
+    public SearchQuery(
+            Set<String> rocks,
+            Set<String> biomes,
+            Set<Integer> rockTypes,
+            float minRain,
+            float maxRain,
+            float minTemp,
+            float maxTemp,
+            Set<String> features,
+            int minY,
+            int maxY,
+            String rockLayer,
+            Set<String> climateZones,
+            float minGroundwater,
+            float maxGroundwater) {
+        this(
+                rocks,
+                biomes,
+                rockTypes,
+                minRain,
+                maxRain,
+                minTemp,
+                maxTemp,
+                features,
+                minY,
+                maxY,
+                rockLayer,
+                climateZones,
+                minGroundwater,
+                maxGroundwater,
+                SearchLimits.ANY);
+    }
+
     public SearchQuery(
             Set<String> rocks,
             Set<String> biomes,
@@ -53,6 +87,12 @@ public record SearchQuery(
     }
 
     public SearchQuery {
+        limits = limits == null ? SearchLimits.ANY : limits;
+        for (String soil : limits.soils()) {
+            if (Soil.named(soil) == Soil.UNKNOWN) {
+                throw new IllegalArgumentException("Unknown soil: " + soil);
+            }
+        }
         climateZones =
                 climateZones.stream()
                         .map(ClimateZones::code)
@@ -186,7 +226,7 @@ public record SearchQuery(
 
     public static Set<String> names(String s) {
         Set<String> out = new HashSet<>();
-        for (String v : s.split(",")) {
+        for (String v : s.split("[,\\r\\n]+")) {
             v = v.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
             if (!v.isEmpty() && !v.equals("any")) {
                 out.add(v);
@@ -215,6 +255,17 @@ public record SearchQuery(
     }
 
     public boolean matchesRegion(Cell c) {
+        if (limits.ocean() && !c.land()) {
+            return false;
+        }
+        if (limits.minInland() > 0 && c.inland() < limits.minInland()
+                || limits.maxInland() != Float.MAX_VALUE && c.inland() > limits.maxInland()) {
+            return false;
+        }
+        if (!limits.soils().isEmpty()
+                && !limits.soils().contains(c.soil().name().toLowerCase(Locale.ROOT))) {
+            return false;
+        }
         return (dikes() || matchingLayers(c) != 0)
                 && named(biomes, c.biome())
                 && (rockTypes.isEmpty() || rockTypes.contains(c.rockType()))

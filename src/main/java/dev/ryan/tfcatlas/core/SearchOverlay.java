@@ -306,7 +306,7 @@ public final class SearchOverlay {
     }
 
     private int boundaryMask(int a, int b) {
-        return a == b ? 0 : !layered ? (a == 0 || b == 0 ? 1 : 0) : a | b;
+        return a == 0 && b != 0 || b == 0 && a != 0 ? (layered ? a | b : 1) : 0;
     }
 
     private int maskGrid(int x, int z) {
@@ -370,6 +370,11 @@ public final class SearchOverlay {
 
     public long count() {
         return count;
+    }
+
+    /** Select from immutable matching coverage, not just the original five candidates. */
+    public List<NearestMatches.Point> closestTo(int x, int z, int limit, int spacing) {
+        return NearestMatches.select(layers, x, z, limit, spacing);
     }
 
     public List<SearchQuery.Result> candidates() {

@@ -3,9 +3,137 @@ package dev.ryan.tfcatlas.core;
 import java.util.ArrayList;
 import java.util.List;
 
-/** All search filters fit together at Minecraft's 320 x 240 minimum GUI size. */
+/** Each row starts after the preceding input, including its label and a visible gap. */
 public final class SearchLayout {
-    /** Origin toggle, primary Search, Presets, Clear; fit even the minimum GUI width. */
+    public static final List<String> SECTIONS =
+            List.of("Terrain", "Climate", "Geology", "Location");
+    private static final int TOP = 70, LABEL = 9, INPUT = 16, GAP = 4;
+
+    public static List<Group> groups(int width, int height, boolean coordinates, int section) {
+        int content = Math.min(width - 24, 620), left = (width - content) / 2;
+        int listHeight = Math.min(72, 29 + Math.max(0, height - 240) / 4);
+        List<Group> groups = new ArrayList<>();
+        switch (section) {
+            case 0 -> {
+                wideList(groups, left, content, listHeight, "Biomes", "biomes");
+                int top = TOP + LABEL + listHeight + GAP;
+                row(
+                        groups,
+                        left,
+                        content,
+                        top,
+                        0,
+                        3,
+                        "Area blocks²: min / max",
+                        "minArea",
+                        "maxArea");
+                row(groups, left, content, top, 1, 3, "Surface Y: min / max", "minY", "maxY");
+                row(
+                        groups,
+                        left,
+                        content,
+                        top,
+                        2,
+                        3,
+                        "Steepness °: min / max",
+                        "minSlope",
+                        "maxSlope");
+                row(
+                        groups,
+                        left,
+                        content,
+                        top + LABEL + INPUT + GAP,
+                        0,
+                        2,
+                        "Terrain features",
+                        "feature");
+            }
+            case 1 -> {
+                wideList(groups, left, content, listHeight, "Climate zones", "climateZones");
+                int top = TOP + LABEL + listHeight + GAP;
+                row(groups, left, content, top, 0, 2, "Rain mm: min / max", "minRain", "maxRain");
+                row(groups, left, content, top, 1, 2, "Temp °C: min / max", "minTemp", "maxTemp");
+                row(
+                        groups,
+                        left,
+                        content,
+                        top + LABEL + INPUT + GAP,
+                        0,
+                        2,
+                        "Groundwater mm: min / max",
+                        "minGroundwater",
+                        "maxGroundwater");
+            }
+            case 2 -> {
+                wideList(groups, left, content, listHeight, "Rocks", "rocks");
+                int top = TOP + LABEL + listHeight + GAP;
+                row(groups, left, content, top, 0, 2, "Rock regions / uplift", "categories");
+                row(groups, left, content, top, 1, 2, "Rock layer / dikes", "searchRockLayer");
+                row(groups, left, content, top + LABEL + INPUT + GAP, 0, 2, "Dirt types", "soils");
+            }
+            case 3 -> {
+                int pitch = LABEL + INPUT + GAP;
+                row(groups, left, content, TOP, 0, 3, "Search radius", "radius");
+                row(groups, left, content, TOP, 1, 3, "Sampling (blocks)", "precision");
+                row(groups, left, content, TOP, 2, 3, "Separation (blocks)", "resultSpacing");
+                row(
+                        groups,
+                        left,
+                        content,
+                        TOP + pitch,
+                        0,
+                        3,
+                        "River: min / max",
+                        "minRiver",
+                        "maxRiver");
+                row(
+                        groups,
+                        left,
+                        content,
+                        TOP + pitch,
+                        1,
+                        3,
+                        "Ocean: min / max",
+                        "minOcean",
+                        "maxOcean");
+                row(
+                        groups,
+                        left,
+                        content,
+                        TOP + pitch,
+                        2,
+                        3,
+                        "Inlandness: min / max",
+                        "minInland",
+                        "maxInland");
+                if (coordinates) {
+                    row(
+                            groups,
+                            left,
+                            content,
+                            TOP + 2 * pitch,
+                            0,
+                            2,
+                            "Centre X / Z",
+                            "searchX",
+                            "searchZ");
+                }
+                row(
+                        groups,
+                        left,
+                        content,
+                        TOP + 2 * pitch,
+                        1,
+                        2,
+                        "Highlight matches",
+                        "highlights");
+            }
+            default -> throw new IllegalArgumentException("Unknown search section");
+        }
+        return List.copyOf(groups);
+    }
+
+    /** Shared footer stays in the same place on every section. */
     public static List<HudLayout.Box> actions(int width, int height) {
         int content = Math.min(width - 24, 620), left = (width - content) / 2;
         int origin = (content - 12) * 34 / 100,
@@ -26,56 +154,32 @@ public final class SearchLayout {
         public HudLayout.Box field(int index) {
             int gap = 6, w = (bounds.width() - gap * (keys.size() - 1)) / keys.size();
             return new HudLayout.Box(
-                    bounds.x() + index * (w + gap), bounds.y() + 9, w, bounds.height() - 9);
+                    bounds.x() + index * (w + gap), bounds.y() + LABEL, w, bounds.height() - LABEL);
         }
     }
 
     public static List<Group> groups(int width, int height) {
-        return groups(width, height, false);
+        return groups(width, height, false, 0);
     }
 
     public static List<Group> groups(int width, int height, boolean coordinates) {
-        int content = Math.min(width - 24, 620), left = (width - content) / 2;
-        int pitch = Math.min(30, Math.max(22, (height - 128) / 5)), h = Math.min(16, pitch - 10);
-        List<Group> groups = new ArrayList<>();
-        add(groups, left, content, pitch, h, 0, 0, 3, "Rocks (comma separated)", "rocks");
-        add(groups, left, content, pitch, h, 0, 1, 3, "Biomes (comma separated)", "biomes");
-        add(groups, left, content, pitch, h, 1, 0, 3, "Rock regions (list)", "categories");
-        add(groups, left, content, pitch, h, 1, 1, 3, "Terrain features (list)", "feature");
-        add(groups, left, content, pitch, h, 1, 2, 3, "Rock layer", "searchRockLayer");
-        add(groups, left, content, pitch, h, 2, 0, 3, "Rain mm: min / max", "minRain", "maxRain");
-        add(groups, left, content, pitch, h, 2, 1, 3, "Temp °C: min / max", "minTemp", "maxTemp");
-        add(groups, left, content, pitch, h, 2, 2, 3, "Surface Y: min / max", "minY", "maxY");
-        add(groups, left, content, pitch, h, 3, 0, 3, "Search radius (blocks)", "radius");
-        add(groups, left, content, pitch, h, 3, 1, 3, "Sampling (blocks)", "precision");
-        if (coordinates) {
-            add(groups, left, content, pitch, h, 4, 0, 3, "Centre X / Z", "searchX", "searchZ");
-        }
-        add(groups, left, content, pitch, h, 4, 1, 3, "Separation (blocks)", "resultSpacing");
-        add(groups, left, content, pitch, h, 4, 2, 3, "Highlight matches", "highlights");
-        add(groups, left, content, pitch, h, 0, 2, 3, "Climate zones (names)", "climateZones");
-        add(
-                groups,
-                left,
-                content,
-                pitch,
-                h,
-                3,
-                2,
-                3,
-                "Water potential: min / max",
-                "minGroundwater",
-                "maxGroundwater");
-        return List.copyOf(groups);
+        return groups(width, height, coordinates, 3);
     }
 
-    private static void add(
+    private static void wideList(
+            List<Group> out, int left, int content, int height, String label, String key) {
+        out.add(
+                new Group(
+                        label,
+                        List.of(key),
+                        new HudLayout.Box(left, TOP, content - 8, height + LABEL)));
+    }
+
+    private static void row(
             List<Group> out,
             int left,
             int content,
-            int pitch,
-            int height,
-            int row,
+            int top,
             int col,
             int cols,
             String label,
@@ -86,8 +190,8 @@ public final class SearchLayout {
                         List.of(keys),
                         new HudLayout.Box(
                                 left + col * content / cols,
-                                52 + row * pitch,
+                                top,
                                 content / cols - 8,
-                                height + 9)));
+                                LABEL + INPUT)));
     }
 }

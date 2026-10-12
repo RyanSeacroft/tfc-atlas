@@ -232,8 +232,13 @@ public final class SamplingTest {
                 "Existing customized climate ranges are retained");
         check(
                 new SearchDetails(new Profile().query(), 0, 0, 1024, 50, 512, 16)
-                        .lines().stream().anyMatch(l -> l.equals("Rain: Any mm · Temp: Any °C")),
-                "Unrestricted criteria read Any without sentinel numbers");
+                        .lines().stream()
+                                .noneMatch(
+                                        l ->
+                                                l.startsWith("Rain:")
+                                                        || l.startsWith("Temp:")
+                                                        || l.contains("Any")),
+                "Unrestricted criteria are omitted instead of showing Any or sentinel numbers");
         for (int width : new int[] {320, 360, 427, 854, 1920}) {
             for (int height : new int[] {240, 300, 480}) {
                 var buttons = SearchLayout.actions(width, height);

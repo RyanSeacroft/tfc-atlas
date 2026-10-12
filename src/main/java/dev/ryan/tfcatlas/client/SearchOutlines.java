@@ -142,31 +142,29 @@ final class SearchOutlines {
                         (colour >> 16 & 255) / 255f,
                         (colour >> 8 & 255) / 255f,
                         (colour & 255) / 255f);
-        for (int pass = 0; pass < 2; pass++) {
-            shader.safeGetUniform("StrokeWidth").set(pass == 0 ? 3f : 1.25f);
-            shader.safeGetUniform("ShadowPass").set(pass == 0 ? 1f : 0f);
-            for (var group : visible) {
-                Mesh mesh = meshes.get(group.key());
-                if (mesh == null) {
-                    continue;
-                }
-                // Subtract the double-precision camera before converting to floats, including near
-                // world borders.
-                Matrix4f pose =
-                        new Matrix4f(g.pose().last().pose())
-                                .translate(
-                                        (float)
-                                                (v.centerX()
-                                                        + (group.blockX() - v.x()) * v.scale()),
-                                        (float)
-                                                (v.centerZ()
-                                                        + (group.blockZ() - v.z()) * v.scale()),
-                                        0)
-                                .scale((float) v.scale(), (float) v.scale(), 1);
-                mesh.buffer.bind();
-                mesh.buffer.drawWithShader(pose, RenderSystem.getProjectionMatrix(), shader);
+        float stroke =
+                (float)
+                        dev.ryan.tfcatlas.core.SearchStroke.width(
+                                overlay.resolution(), v.scale(), false);
+        shader.safeGetUniform("StrokeWidth").set(stroke);
+        for (var group : visible) {
+            Mesh mesh = meshes.get(group.key());
+            if (mesh == null) {
+                continue;
             }
+            // Subtract the double-precision camera before converting to floats, including near
+            // world borders.
+            Matrix4f pose =
+                    new Matrix4f(g.pose().last().pose())
+                            .translate(
+                                    (float) (v.centerX() + (group.blockX() - v.x()) * v.scale()),
+                                    (float) (v.centerZ() + (group.blockZ() - v.z()) * v.scale()),
+                                    0)
+                            .scale((float) v.scale(), (float) v.scale(), 1);
+            mesh.buffer.bind();
+            mesh.buffer.drawWithShader(pose, RenderSystem.getProjectionMatrix(), shader);
         }
+
         VertexBuffer.unbind();
         RenderSystem.enableCull();
         return true;

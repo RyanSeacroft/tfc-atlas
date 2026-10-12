@@ -22,12 +22,18 @@ public final class SearchCompletion {
         return focused ? suggest(value, cursor, options) : null;
     }
 
+    private static boolean separator(char character) {
+        return character == ',' || character == '\n' || character == '\r';
+    }
+
     public static Match suggest(String value, int cursor, Collection<String> options) {
         cursor = Math.max(0, Math.min(value.length(), cursor));
-        int start = value.lastIndexOf(',', Math.max(-1, cursor - 1)) + 1,
-                end = value.indexOf(',', cursor);
-        if (end < 0) {
-            end = value.length();
+        int start = cursor, end = cursor;
+        while (start > 0 && !separator(value.charAt(start - 1))) {
+            start--;
+        }
+        while (end < value.length() && !separator(value.charAt(end))) {
+            end++;
         }
         while (start < end && Character.isWhitespace(value.charAt(start))) {
             start++;
@@ -35,17 +41,33 @@ public final class SearchCompletion {
         if (cursor <= start) {
             return null;
         }
+        if (!value.substring(cursor, end).isBlank()) {
+            return null;
+        }
         String prefix = value.substring(start, cursor).toLowerCase(Locale.ROOT).replace('_', ' ');
         Set<String> selected =
-                new HashSet<>(SearchQuery.names(value.substring(0, Math.max(0, start))));
+                new HashSet<>(
+                        SearchQuery.names(
+                                value.substring(0, Math.max(0, start))
+                                        + ","
+                                        + value.substring(end)));
+        String best = null;
         for (String option : options) {
             String text = option.toLowerCase(Locale.ROOT);
+            // An exact token is complete even when a longer name shares its prefix.
+            if (text.equals(prefix)) {
+                return null;
+            }
             if (text.startsWith(prefix)
                     && !text.equals(prefix)
                     && !selected.contains(text.replace(' ', '_'))) {
-                return new Match(start, end, text, text.substring(prefix.length()));
+                if (best == null
+                        || text.length() < best.length()
+                        || text.length() == best.length() && text.compareTo(best) < 0) {
+                    best = text;
+                }
             }
         }
-        return null;
+        return best == null ? null : new Match(start, end, best, best.substring(prefix.length()));
     }
 }

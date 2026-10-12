@@ -313,17 +313,17 @@ public final class IntegrationSmoke {
                 ticks = 0;
             } else if (phase == 5 && ++ticks > 100) {
                 screenshot("03-map-unexplored");
-                mc.setScreen(new AtlasScreen(map, 1));
+                mc.setScreen(new AtlasScreen(map, AtlasScreen.SEARCH));
                 phase = 6;
                 ticks = 0;
             } else if (phase == 6 && ++ticks > 20) {
                 screenshot("04-search-ui");
-                mc.setScreen(new AtlasScreen(map, 2));
+                mc.setScreen(new AtlasScreen(map, AtlasScreen.RESULTS));
                 phase = 7;
                 ticks = 0;
             } else if (phase == 7 && ++ticks > 20) {
                 screenshot("05-results-ui");
-                mc.setScreen(new AtlasScreen(map, 5));
+                mc.setScreen(new AtlasScreen(map, AtlasScreen.CACHE));
                 phase = 70;
                 ticks = 0;
             } else if (phase == 70 && ++ticks > 20) {
@@ -350,7 +350,7 @@ public final class IntegrationSmoke {
                 ticks = 0;
             } else if (phase == 83 && ++ticks > 10) {
                 screenshot("13-climate-key-scrolled");
-                mc.setScreen(new AtlasScreen(map, 1));
+                mc.setScreen(new AtlasScreen(map, AtlasScreen.SEARCH));
                 var box =
                         mc.screen.children().stream()
                                 .filter(
